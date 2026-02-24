@@ -29,7 +29,14 @@ const twilioClient = (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_
 
 // ── Middleware ───────────────────────────────────
 app.use(cors({
-  origin: ['http://localhost:3000','http://localhost:3001','http://127.0.0.1:3000','http://127.0.0.1:3001'],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const allowed =
+      /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin) ||
+      origin === 'https://freshtrack-frontend.onrender.com';
+    if (allowed) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization','Accept']
