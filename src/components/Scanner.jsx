@@ -27,18 +27,18 @@ const getCategoryEmoji = (cat='') => {
 
 // ── Month name → number map ───────────────────────
 const MONTH_MAP = {
-  JAN:1, JANUARY:1, JAN.:1,
-  FEB:2, FEBRUARY:2, FEB.:2,
-  MAR:3, MARCH:3, MAR.:3,
-  APR:4, APRIL:4, APR.:4,
+  JAN:1, JANUARY:1, JAN:1,
+FEB:2, FEBRUARY:2, FEB:2,
+  MAR:3, MARCH:3, MAR:3,
+  APR:4, APRIL:4, APR:4,
   MAY:5,
-  JUN:6, JUNE:6, JUN.:6,
-  JUL:7, JULY:7, JUL.:7,
-  AUG:8, AUGUST:8, AUG.:8,
-  SEP:9, SEPTEMBER:9, SEPT:9, SEP.:9,
-  OCT:10, OCTOBER:10, OCT.:10,
-  NOV:11, NOVEMBER:11, NOV.:11,
-  DEC:12, DECEMBER:12, DEC.:12,
+  JUN:6, JUNE:6, JUN:6,
+  JUL:7, JULY:7, JUL:7,
+  AUG:8, AUGUST:8, AUG:8,
+  SEP:9, SEPTEMBER:9, SEPT:9, SEP:9,
+  OCT:10, OCTOBER:10, OCT:10,
+  NOV:11, NOVEMBER:11, NOV:11,
+  DEC:12, DECEMBER:12, DEC:12,
 };
 
 // Validate and build YYYY-MM-DD, returns null if invalid/out-of-range
