@@ -352,3 +352,40 @@
   .si-step span { font-size: .65rem; }
   .sc-confirm-step { padding: 1.125rem; }
 }
+
+/* ── Expiry date smart text input ────────────────── */
+.sc-input-valid {
+  border-color: #4a7c59 !important;
+  background: #f0faf1 !important;
+  color: #1b5e20;
+  font-weight: 600;
+}
+
+.sc-input-invalid {
+  border-color: #ef5350 !important;
+  background: #fff8f8 !important;
+}
+
+.sc-date-parsed {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin-top: .4rem;
+  padding: .5rem .875rem;
+  background: #e8f5e9;
+  border-radius: 8px;
+  font-size: .82rem;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
+  flex-wrap: wrap;
+}
+.sc-date-parsed i { color: #43a047; flex-shrink: 0; }
+.sc-date-parsed strong { color: #1b5e20; }
+.sc-date-iso { color: #66bb6a; font-size: .75rem; margin-left: .25rem; }
+
+.sc-field-hint-soft {
+  font-size: .75rem;
+  color: #9e9e9e;
+  margin: .3rem 0 0 .2rem;
+  font-style: italic;
+}
