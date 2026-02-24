@@ -3,20 +3,29 @@ import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 import Tesseract from 'tesseract.js';
 import './Scanner.css';
 
-// ── Category mapper ───────────────────────────────
+// ── Category mapper — checks ALL OpenFoodFacts tags ──
+const CATEGORY_RULES = [
+  { cat: 'Dairy',          keys: ['dairy','milk','cheese','yogurt','yoghurt','butter','cream','paneer','ghee','curd','lassi','whey'] },
+  { cat: 'Beverages',      keys: ['beverage','drink','water','soda','juice','tea','coffee','cola','smoothie','shake','energy drink','soft drink','squash','nectar','lemonade','coconut water'] },
+  { cat: 'Fruits',         keys: ['fruit','apple','mango','banana','orange','grape','berry','berries','pineapple','papaya','guava','pomegranate','lychee','melon'] },
+  { cat: 'Vegetables',     keys: ['vegetable','veggie','spinach','tomato','potato','onion','carrot','pea','bean','lentil','dal','rajma','chickpea','chana','mushroom','broccoli','cauliflower'] },
+  { cat: 'Meat & Seafood', keys: ['meat','chicken','mutton','lamb','beef','pork','fish','seafood','prawn','shrimp','tuna','salmon','egg','poultry'] },
+  { cat: 'Bakery',         keys: ['bread','biscuit','bakery','cookie','cake','pastry','rusk','cracker','wafer','muffin','bun','roll','chapati','roti','naan','pav'] },
+  { cat: 'Snacks',         keys: ['snack','chip','namkeen','bhujia','mixture','popcorn','chocolate','candy','sweet','mithai','dessert','ice cream','icecream','halwa','ladoo','confection','nuts','peanut','cashew','almond','raisin'] },
+  { cat: 'Frozen Foods',   keys: ['frozen','freeze','ice cream','icecream'] },
+  { cat: 'Canned Goods',   keys: ['canned','tinned','preserved','pickled','pickle','achar','jam','jelly','marmalade','conserve'] },
+  { cat: 'Condiments',     keys: ['sauce','condiment','ketchup','mayonnaise','mustard','oil','vinegar','spice','masala','chutney','paste','dressing','seasoning','relish','curry'] },
+  { cat: 'Personal Care',  keys: ['soap','shampoo','lotion','toothpaste','deodorant','skincare','haircare','personal care','hygiene','detergent','cleanser'] },
+];
+
 const mapCategory = (tags = []) => {
   if (!tags || !tags.length) return 'Other';
-  const raw = tags[0].split(':').pop().replace(/-/g,' ').toLowerCase();
-  if (raw.includes('dairy')||raw.includes('milk')||raw.includes('cheese')||raw.includes('yogurt')) return 'Dairy';
-  if (raw.includes('fruit')||raw.includes('juice')) return 'Fruits';
-  if (raw.includes('vegetable')||raw.includes('veggie')) return 'Vegetables';
-  if (raw.includes('meat')||raw.includes('chicken')||raw.includes('fish')||raw.includes('seafood')) return 'Meat & Seafood';
-  if (raw.includes('bread')||raw.includes('biscuit')||raw.includes('bakery')||raw.includes('cake')) return 'Bakery';
-  if (raw.includes('snack')||raw.includes('chip')||raw.includes('chocolate')||raw.includes('candy')) return 'Snacks';
-  if (raw.includes('beverage')||raw.includes('drink')||raw.includes('water')||raw.includes('soda')||raw.includes('tea')||raw.includes('coffee')) return 'Beverages';
-  if (raw.includes('canned')||raw.includes('preserved')||raw.includes('tinned')) return 'Canned Goods';
-  if (raw.includes('frozen')) return 'Frozen Foods';
-  if (raw.includes('sauce')||raw.includes('condiment')||raw.includes('oil')||raw.includes('vinegar')) return 'Condiments';
+  const allTags = tags
+    .map(t => t.split(':').pop().replace(/-/g, ' ').replace(/_/g, ' ').toLowerCase())
+    .join(' ');
+  for (const { cat, keys } of CATEGORY_RULES) {
+    if (keys.some(k => allTags.includes(k))) return cat;
+  }
   return 'Other';
 };
 
@@ -191,7 +200,8 @@ const Scanner = ({ onProductScanned }) => {
   const [progressType,  setProgressType] = useState('info'); // info|success|warn
   const [error,         setError]        = useState('');
   const [productData,   setProductData]  = useState(null);
-  const [expiryDate,    setExpiryDate]   = useState('');
+  const [expiryDate,    setExpiryDate]   = useState(''); // YYYY-MM-DD internal value
+  const [expiryText,    setExpiryText]   = useState(''); // raw display text typed by user
   const [ocrRunning,    setOcrRunning]   = useState(false);
   const [ocrRawText,    setOcrRawText]   = useState('');
   const [capturedImg,   setCapturedImg]  = useState(null);
@@ -203,6 +213,29 @@ const Scanner = ({ onProductScanned }) => {
   const codeReader = useRef(new BrowserMultiFormatReader());
 
   const showProgress = (msg, type='info') => { setProgress(msg); setProgressType(type); };
+
+  // Parse any typed or OCR-filled date text into YYYY-MM-DD
+  const handleExpiryInput = (raw) => {
+    setExpiryText(raw);
+    if (!raw.trim()) { setExpiryDate(''); return; }
+    const parsed = extractDateFromText(raw);
+    if (parsed) {
+      setExpiryDate(parsed);
+    } else {
+      // Try native Date as fallback for typed values like "2026-06-01"
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) {
+        const today = new Date();
+        const min = new Date(today.getFullYear()-1, today.getMonth(), today.getDate());
+        const max = new Date(today.getFullYear()+15, 11, 31);
+        if (d >= min && d <= max) {
+          setExpiryDate(d.toISOString().split('T')[0]);
+          return;
+        }
+      }
+      setExpiryDate(''); // typed but not yet parseable
+    }
+  };
 
   // ── Camera helpers ────────────────────────────
   const startCamera = async () => {
@@ -316,8 +349,10 @@ const Scanner = ({ onProductScanned }) => {
       setOcrRawText(text);
       const found = extractDateFromText(text);
       if (found) {
+        const friendly = new Date(found + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
         setExpiryDate(found);
-        showProgress(`✅ Expiry date detected: ${new Date(found).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}`, 'success');
+        setExpiryText(friendly); // fills the text input field instead of calendar
+        showProgress(`✅ Expiry date detected: ${friendly}`, 'success');
       } else {
         showProgress('⚠️ Could not detect date — please enter it manually below.', 'warn');
       }
@@ -345,7 +380,7 @@ const Scanner = ({ onProductScanned }) => {
         expiryDate,
         scanDate:  new Date().toISOString(),
       });
-      setStep(0); setProductData(null); setExpiryDate('');
+      setStep(0); setProductData(null); setExpiryDate(''); setExpiryText('');
       setOcrRawText(''); setCapturedImg(null);
       showProgress('✅ Product added to your inventory!', 'success');
       setTimeout(() => setProgress(''), 3500);
@@ -358,7 +393,7 @@ const Scanner = ({ onProductScanned }) => {
   const reset = () => {
     stopCamera();
     setStep(0); setProgress(''); setError('');
-    setProductData(null); setExpiryDate('');
+    setProductData(null); setExpiryDate(''); setExpiryText('');
     setOcrRawText(''); setCapturedImg(null);
   };
 
@@ -546,17 +581,31 @@ const Scanner = ({ onProductScanned }) => {
               </select>
             </div>
 
-            <div className="sc-field">
+            <div className="sc-field sc-field--full">
               <label>
                 <i className="fas fa-calendar-alt"></i> Expiry Date *
-                {expiryDate && <span className="sc-ocr-badge"><i className="fas fa-magic"></i> OCR auto-filled</span>}
+                {expiryDate && <span className="sc-ocr-badge"><i className="fas fa-magic"></i> OCR detected</span>}
               </label>
               <input
-                type="date"
-                value={expiryDate}
-                onChange={e => setExpiryDate(e.target.value)}
+                type="text"
+                value={expiryText}
+                onChange={e => handleExpiryInput(e.target.value)}
+                placeholder="e.g. JAN 2026 / 01/06/2026 / 31-12-26"
+                className={expiryDate ? 'sc-input-valid' : expiryText ? 'sc-input-invalid' : ''}
               />
-              {!expiryDate && <p className="sc-field-hint">Please enter the expiry date from the package</p>}
+              {expiryDate && (
+                <div className="sc-date-parsed">
+                  <i className="fas fa-check-circle"></i>
+                  Parsed as: <strong>{new Date(expiryDate + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</strong>
+                  <span className="sc-date-iso">({expiryDate})</span>
+                </div>
+              )}
+              {expiryText && !expiryDate && (
+                <p className="sc-field-hint">⚠️ Format not recognised — try: DD/MM/YYYY, MM/YYYY, JAN 2026, 01-06-2026</p>
+              )}
+              {!expiryText && (
+                <p className="sc-field-hint-soft">Type any format or use OCR in Step 2 to auto-fill</p>
+              )}
             </div>
 
             <div className="sc-field">
