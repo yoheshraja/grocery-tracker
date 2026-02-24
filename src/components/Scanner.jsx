@@ -28,7 +28,7 @@ const getCategoryEmoji = (cat='') => {
 // ── Month name → number map ───────────────────────
 const MONTH_MAP = {
   JAN:1, JANUARY:1, JAN:1,
-FEB:2, FEBRUARY:2, FEB:2,
+  FEB:2, FEBRUARY:2, FEB:2,
   MAR:3, MARCH:3, MAR:3,
   APR:4, APRIL:4, APR:4,
   MAY:5,
