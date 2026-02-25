@@ -54,15 +54,18 @@ const MONTH_MAP = {
 const fixOCRText = (raw) => {
   return raw
     .toUpperCase()
-    // Fix OCR digit mistakes ONLY inside digit sequences
-    .replace(/\b([0-9ILOS]{2,})\b/g, s =>
-      s.replace(/I/g,'1').replace(/L/g,'1').replace(/O/g,'0')
-       .replace(/S/g,'5').replace(/Z/g,'2').replace(/G/g,'6').replace(/B/g,'8')
-    )
+    // Remove noise characters that confuse parsing
+    .replace(/[©®™°•·]/g, ' ')          // "© 14 JAN" → " 14 JAN"
+    .replace(/[''`|\\]/g, '')
+    // Fix OCR digit mistakes ONLY between actual digit characters (never inside words)
+    // e.g. "2O26" → "2026" but "JAN" stays "JAN"
+    .replace(/(\d)O(\d)/g, '$10$2')      // digit-O-digit → digit-0-digit
+    .replace(/(\d)I(\d)/g, '$11$2')      // digit-I-digit → digit-1-digit
+    .replace(/(\d)l(\d)/g, '$11$2')      // digit-l-digit → digit-1-digit
+    .replace(/(\d)S(\d)/g, '$15$2')      // digit-S-digit → digit-5-digit
     .replace(/\s+/g, ' ')
-    .replace(/[''`|]/g, '')
-    .replace(/(\d)[,](\d)/g, '$1/$2')   // "12,2025" → "12/2025"
-    .replace(/(\d)[;](\d)/g, '$1/$2')   // "12;2025" → "12/2025"
+    .replace(/(\d)[,](\d)/g, '$1/$2')    // "12,2025" → "12/2025"
+    .replace(/(\d)[;](\d)/g, '$1/$2')    // "12;2025" → "12/2025"
     .trim();
 };
 
@@ -71,14 +74,16 @@ const buildDate = (yyyy, mm, dd = 1) => {
   let y = parseInt(yyyy), m = parseInt(mm), d = parseInt(dd);
   if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
 
-  // 2-digit year: treat 25-49 as 2025-2049, never go to 1900s
-  if (y < 100) y = y >= 0 ? 2000 + y : null;
-  if (!y) return null;
+  // 2-digit year: 25→2025, 26→2026 etc. Only accept 25-39 (realistic expiry range)
+  if (y < 100) {
+    if (y >= 25 && y <= 39) y = 2000 + y;
+    else return null; // reject ambiguous 2-digit years outside this range
+  }
 
   // Sanity check ranges
   if (m < 1 || m > 12) return null;
   if (d < 1 || d > 31) return null;
-  if (y < 2024 || y > 2040) return null; // expiry dates are always near-future
+  if (y < 2025 || y > 2040) return null; // expiry dates are always near-future
 
   const date = new Date(y, m - 1, d);
   if (isNaN(date.getTime())) return null;
@@ -117,9 +122,9 @@ const extractDateFromText = (rawText) => {
   const MONTH_RE = '(?:JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)';
 
   // Label keywords that mark EXPIRY (not manufacture)
-  const EXP_LABEL = '(?:BEST\\s*BEFORE|USE\\s*BY|USE\\s*BEFORE|EXPIRY\\s*DATE?|EXP(?:IRY|IRES?)?|BB|B\\.B\\.|CONSUME\\s*BEFORE|CONSUME\\s*BY)';
+  const EXP_LABEL = '(?:BEST\\s*BEFORE|USE\\s*BY|USE\\s*BEFORE|EXPIRY\\.?\\s*DATE\\.?|EXPIRY\\.?|EXP\\.?(?:IRY|IRES?|\\s*DATE\\.?)?|BB|B\\.B\\.|CONSUME\\s*BEFORE|CONSUME\\s*BY)';
   // Label keywords that mark MANUFACTURE — we use these to EXCLUDE nearby dates
-  const MFD_LABEL = '(?:MFG\\.?\\s*DATE|MFD|MANUFACTURED|DOM|DATE\\s*OF\\s*MFG|PACKED\\s*ON|PKD\\s*ON|MFGD?)';
+  const MFD_LABEL = '(?:MFG\\.?\\s*DATE\\.?|MFD\\.?|MANUFACTURED|DOM|DATE\\s*OF\\s*(?:MFG|MANUFACTURING|PACKAGING|PACKING)|PACKED\\s*ON|PKD\\.?\\s*ON|MFGD?|DATE\\s*OF\\s*MFG)';
 
   const SEP = '[\\s\\-\\/\\.\\,]?';
 
@@ -213,6 +218,15 @@ const extractDateFromText = (rawText) => {
   const p11 = /\b(0?[1-9]|1[0-2])[\/\-](20[2-9]\d)\b/g;
   for (const m of t.matchAll(p11)) {
     if (!nearMFD(m.index)) tryAdd(buildDate(m[2], m[1], 1), false);
+  }
+
+  // MON-YYYY with hyphen "JAN-2026", "DEC-2026" (very common Indian packaging)
+  const p11b = new RegExp(`\\b(${MONTH_RE})-(20[2-9]\\d)\\b`, 'gi');
+  for (const m of t.matchAll(p11b)) {
+    if (!nearMFD(m.index)) {
+      const mo = MONTH_MAP[m[1].replace(/\.$/,'')];
+      tryAdd(buildDate(m[2], mo, 1), false);
+    }
   }
 
   // DD/MM/YY two-digit year  "31/01/26"
