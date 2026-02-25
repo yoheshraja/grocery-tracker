@@ -200,8 +200,7 @@ const Scanner = ({ onProductScanned }) => {
   const [progressType,  setProgressType] = useState('info'); // info|success|warn
   const [error,         setError]        = useState('');
   const [productData,   setProductData]  = useState(null);
-  const [expiryDate,    setExpiryDate]   = useState(''); // YYYY-MM-DD internal value
-  const [expiryText,    setExpiryText]   = useState(''); // raw display text typed by user
+  const [expiryDate,    setExpiryDate]   = useState(''); // YYYY-MM-DD for calendar input
   const [ocrRunning,    setOcrRunning]   = useState(false);
   const [ocrRawText,    setOcrRawText]   = useState('');
   const [capturedImg,   setCapturedImg]  = useState(null);
@@ -214,28 +213,6 @@ const Scanner = ({ onProductScanned }) => {
 
   const showProgress = (msg, type='info') => { setProgress(msg); setProgressType(type); };
 
-  // Parse any typed or OCR-filled date text into YYYY-MM-DD
-  const handleExpiryInput = (raw) => {
-    setExpiryText(raw);
-    if (!raw.trim()) { setExpiryDate(''); return; }
-    const parsed = extractDateFromText(raw);
-    if (parsed) {
-      setExpiryDate(parsed);
-    } else {
-      // Try native Date as fallback for typed values like "2026-06-01"
-      const d = new Date(raw);
-      if (!isNaN(d.getTime())) {
-        const today = new Date();
-        const min = new Date(today.getFullYear()-1, today.getMonth(), today.getDate());
-        const max = new Date(today.getFullYear()+15, 11, 31);
-        if (d >= min && d <= max) {
-          setExpiryDate(d.toISOString().split('T')[0]);
-          return;
-        }
-      }
-      setExpiryDate(''); // typed but not yet parseable
-    }
-  };
 
   // ── Camera helpers ────────────────────────────
   const startCamera = async () => {
@@ -380,7 +357,7 @@ const Scanner = ({ onProductScanned }) => {
         expiryDate,
         scanDate:  new Date().toISOString(),
       });
-      setStep(0); setProductData(null); setExpiryDate(''); setExpiryText('');
+      setStep(0); setProductData(null); setExpiryDate('');
       setOcrRawText(''); setCapturedImg(null);
       showProgress('✅ Product added to your inventory!', 'success');
       setTimeout(() => setProgress(''), 3500);
@@ -393,7 +370,7 @@ const Scanner = ({ onProductScanned }) => {
   const reset = () => {
     stopCamera();
     setStep(0); setProgress(''); setError('');
-    setProductData(null); setExpiryDate(''); setExpiryText('');
+    setProductData(null); setExpiryDate('');
     setOcrRawText(''); setCapturedImg(null);
   };
 
@@ -584,27 +561,24 @@ const Scanner = ({ onProductScanned }) => {
             <div className="sc-field sc-field--full">
               <label>
                 <i className="fas fa-calendar-alt"></i> Expiry Date *
-                {expiryDate && <span className="sc-ocr-badge"><i className="fas fa-magic"></i> OCR detected</span>}
+                {expiryDate && <span className="sc-ocr-badge"><i className="fas fa-magic"></i> OCR auto-filled</span>}
               </label>
               <input
-                type="text"
-                value={expiryText}
-                onChange={e => handleExpiryInput(e.target.value)}
-                placeholder="e.g. JAN 2026 / 01/06/2026 / 31-12-26"
-                className={expiryDate ? 'sc-input-valid' : expiryText ? 'sc-input-invalid' : ''}
+                type="date"
+                value={expiryDate}
+                onChange={e => setExpiryDate(e.target.value)}
+                min={new Date(Date.now() - 365*86400000).toISOString().split('T')[0]}
+                max={new Date(Date.now() + 15*365*86400000).toISOString().split('T')[0]}
+                className={expiryDate ? 'sc-input-valid' : ''}
               />
               {expiryDate && (
                 <div className="sc-date-parsed">
                   <i className="fas fa-check-circle"></i>
-                  Parsed as: <strong>{new Date(expiryDate + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</strong>
-                  <span className="sc-date-iso">({expiryDate})</span>
+                  <strong>{new Date(expiryDate + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</strong>
                 </div>
               )}
-              {expiryText && !expiryDate && (
-                <p className="sc-field-hint">⚠️ Format not recognised — try: DD/MM/YYYY, MM/YYYY, JAN 2026, 01-06-2026</p>
-              )}
-              {!expiryText && (
-                <p className="sc-field-hint-soft">Type any format or use OCR in Step 2 to auto-fill</p>
+              {!expiryDate && (
+                <p className="sc-field-hint-soft">OCR will auto-fill this — or pick from calendar</p>
               )}
             </div>
 
