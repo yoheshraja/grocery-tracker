@@ -326,9 +326,8 @@ const Scanner = ({ onProductScanned }) => {
       setOcrRawText(text);
       const found = extractDateFromText(text);
       if (found) {
-        const friendly = new Date(found + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
         setExpiryDate(found);
-        setExpiryText(friendly); // fills the text input field instead of calendar
+        const friendly = new Date(found + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
         showProgress(`✅ Expiry date detected: ${friendly}`, 'success');
       } else {
         showProgress('⚠️ Could not detect date — please enter it manually below.', 'warn');
