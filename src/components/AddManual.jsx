@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import './Addmanual.css';
 
 const getCategoryEmoji = (cat = '') => {
   const m = {
@@ -138,16 +137,26 @@ const AddManual = ({ onProductAdded, categories = DEFAULT_CATEGORIES }) => {
           <label htmlFor="am-expiry">
             <i className="fas fa-calendar-alt"></i> Expiry Date *
           </label>
-          <input
-            id="am-expiry"
-            name="expiryDate"
-            type="date"
-            value={form.expiryDate}
-            onChange={handleChange}
-            min={new Date(Date.now() - 365*86400000).toISOString().split('T')[0]}
-            disabled={loading}
-            required
-          />
+          <div className="am-date-wrapper">
+            <input
+              id="am-expiry"
+              name="expiryDate"
+              type="date"
+              value={form.expiryDate}
+              onChange={handleChange}
+              min={new Date(Date.now() - 365*86400000).toISOString().split('T')[0]}
+              max={new Date(Date.now() + 15*365*86400000).toISOString().split('T')[0]}
+              disabled={loading}
+              required
+            />
+            <i className="fas fa-calendar-alt am-date-icon"></i>
+          </div>
+          {form.expiryDate && (
+            <p className="am-date-display">
+              <i className="fas fa-check-circle"></i>
+              {new Date(form.expiryDate + 'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}
+            </p>
+          )}
         </div>
 
         {/* Brand */}
