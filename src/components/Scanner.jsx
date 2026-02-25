@@ -34,141 +34,213 @@ const getCategoryEmoji = (cat='') => {
   return m[(cat||'').toLowerCase()] || '📦';
 };
 
-// ── Month name → number map ───────────────────────
+// ── Month name → number map ─────────────────────────────────────────────────
 const MONTH_MAP = {
-  JAN:1, JANUARY:1, JAN:1,
-  FEB:2, FEBRUARY:2, FEB:2,
-  MAR:3, MARCH:3, MAR:3,
-  APR:4, APRIL:4, APR:4,
+  JAN:1, JANUARY:1,
+  FEB:2, FEBRUARY:2,
+  MAR:3, MARCH:3,
+  APR:4, APRIL:4,
   MAY:5,
-  JUN:6, JUNE:6, JUN:6,
-  JUL:7, JULY:7, JUL:7,
-  AUG:8, AUGUST:8, AUG:8,
-  SEP:9, SEPTEMBER:9, SEPT:9, SEP:9,
-  OCT:10, OCTOBER:10, OCT:10,
-  NOV:11, NOVEMBER:11, NOV:11,
-  DEC:12, DECEMBER:12, DEC:12,
+  JUN:6, JUNE:6,
+  JUL:7, JULY:7,
+  AUG:8, AUGUST:8,
+  SEP:9, SEPTEMBER:9, SEPT:9,
+  OCT:10, OCTOBER:10,
+  NOV:11, NOVEMBER:11,
+  DEC:12, DECEMBER:12,
 };
 
-// Validate and build YYYY-MM-DD, returns null if invalid/out-of-range
-const buildDate = (yyyy, mm, dd = 1) => {
-  const y = parseInt(yyyy), m = parseInt(mm), d = parseInt(dd);
-  if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
-  // 2-digit year fix: 25 → 2025, 99 → 1999 (treat <50 as 2000s)
-  const year  = y < 100 ? (y < 50 ? 2000 + y : 1900 + y) : y;
-  const month = m - 1; // JS months 0-indexed
-  if (month < 0 || month > 11) return null;
-  if (d < 1 || d > 31) return null;
-  const date  = new Date(year, month, d);
-  if (isNaN(date.getTime())) return null;
-  // Allow up to 1 year in the past (recently expired) and 15 years future
-  const today = new Date();
-  const min   = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-  const max   = new Date(today.getFullYear() + 15, 11, 31);
-  if (date < min || date > max) return null;
-  return date.toISOString().split('T')[0];
-};
-
-// ── Extract expiry date from OCR text ────────────
-// Handles every format found on Indian & global product packaging
-const extractDateFromText = (text) => {
-  if (!text) return null;
-
-  // Normalise: uppercase, collapse whitespace, fix common OCR mistakes
-  let t = text.toUpperCase()
-    .replace(/[oO]/g, match => /\d/.test(match) ? '0' : match) // OCR o→0 only near digits
+// ── Fix common OCR character mistakes ────────────────────────────────────────
+const fixOCRText = (raw) => {
+  return raw
+    .toUpperCase()
+    // Fix OCR digit mistakes ONLY inside digit sequences
+    .replace(/\b([0-9ILOS]{2,})\b/g, s =>
+      s.replace(/I/g,'1').replace(/L/g,'1').replace(/O/g,'0')
+       .replace(/S/g,'5').replace(/Z/g,'2').replace(/G/g,'6').replace(/B/g,'8')
+    )
     .replace(/\s+/g, ' ')
-    .replace(/[''`]/g, '')       // remove stray quotes
-    .replace(/(\d)[,](\d)/g, '$1/$2'); // "12,2025" → "12/2025"
+    .replace(/[''`|]/g, '')
+    .replace(/(\d)[,](\d)/g, '$1/$2')   // "12,2025" → "12/2025"
+    .replace(/(\d)[;](\d)/g, '$1/$2')   // "12;2025" → "12/2025"
+    .trim();
+};
 
-  const MONTH_RE = '(?:JAN(?:UARY|\\.)?|FEB(?:RUARY|\\.)?|MAR(?:CH|\\.)?|APR(?:IL|\\.)?|MAY|JUN(?:E|\\.)?|JUL(?:Y|\\.)?|AUG(?:UST|\\.)?|SEP(?:T(?:EMBER)?|\\.)?|OCT(?:OBER|\\.)?|NOV(?:EMBER|\\.)?|DEC(?:EMBER|\\.)?)';
-  const SEP = '[\\s\\-\\/\\.\\,]?'; // flexible separator
+// ── Build YYYY-MM-DD, only FUTURE dates allowed (expiry must be upcoming) ────
+const buildDate = (yyyy, mm, dd = 1) => {
+  let y = parseInt(yyyy), m = parseInt(mm), d = parseInt(dd);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
 
-  // ────────────────────────────────────────────────
-  // All patterns return [fullMatch, ...groups]
-  // Priority order: labelled > specific format > generic
-  // ────────────────────────────────────────────────
-  const patterns = [
+  // 2-digit year: treat 25-49 as 2025-2049, never go to 1900s
+  if (y < 100) y = y >= 0 ? 2000 + y : null;
+  if (!y) return null;
 
-    // ── 1. Labelled — "BEST BEFORE: 12/2025", "EXP: 01-JAN-2026", "USE BY 31.01.26" ──
-    // With full date DD/MM/YYYY or DD-MM-YY
-    { re: new RegExp(`(?:BEST\\s*BEFORE|USE\\s*BY|EXPIRY\\s*DATE|EXPIRY|EXP(?:IRES?)?|BB|MFG\\.?\\s*DATE|MFD)${SEP}[:\\-]?${SEP}(\\d{1,2})[\\s\\/\\-\\.](\\d{1,2})[\\s\\/\\-\\.](\\d{2,4})`,'i'),
-      parse: m => buildDate(m[3], m[2], m[1]) },   // DD MM YYYY
+  // Sanity check ranges
+  if (m < 1 || m > 12) return null;
+  if (d < 1 || d > 31) return null;
+  if (y < 2024 || y > 2040) return null; // expiry dates are always near-future
 
-    // With DD-MON-YYYY  e.g. "EXP: 15-JAN-2026"
-    { re: new RegExp(`(?:BEST\\s*BEFORE|USE\\s*BY|EXPIRY\\s*DATE|EXPIRY|EXP(?:IRES?)?|BB)${SEP}[:\\-]?${SEP}(\\d{1,2})[\\s\\-\\/\\.](${MONTH_RE})[\\s\\-\\/\\.](\\d{2,4})`,'i'),
-      parse: m => { const mo = MONTH_MAP[m[2].replace(/\.$/,'').toUpperCase()]; return mo ? buildDate(m[3], mo, m[1]) : null; } },
+  const date = new Date(y, m - 1, d);
+  if (isNaN(date.getTime())) return null;
 
-    // With MON-YYYY  e.g. "BB: JAN 2026"
-    { re: new RegExp(`(?:BEST\\s*BEFORE|USE\\s*BY|EXPIRY\\s*DATE|EXPIRY|EXP(?:IRES?)?|BB)${SEP}[:\\-]?${SEP}(${MONTH_RE})[\\s\\-\\/\\.](\\d{2,4})`,'i'),
-      parse: m => { const mo = MONTH_MAP[m[1].replace(/\.$/,'').toUpperCase()]; return mo ? buildDate(m[2], mo, 1) : null; } },
+  // EXPIRY DATE RULE: must be TODAY or in the future
+  // (a product already expired today is still valid to track)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (date < today) return null;  // reject all past dates — those are MFD/manufacture dates
 
-    // With MM/YYYY  e.g. "EXP: 06/2026"
-    { re: new RegExp(`(?:BEST\\s*BEFORE|USE\\s*BY|EXPIRY\\s*DATE|EXPIRY|EXP(?:IRES?)?|BB)${SEP}[:\\-]?${SEP}(\\d{1,2})[\\s\\/\\-\\.](\\d{4})`,'i'),
-      parse: m => buildDate(m[2], m[1], 1) },
+  return date.toISOString().split('T')[0]; // YYYY-MM-DD
+};
 
-    // ── 2. YYYY-MM-DD (ISO, common on imports) ──
-    { re: /\b(20\d{2})[\-\/\.](0?[1-9]|1[0-2])[\-\/\.](0?[1-9]|[12]\d|3[01])\b/,
-      parse: m => buildDate(m[1], m[2], m[3]) },
+// ── Score a candidate date: higher = more likely to be expiry ────────────────
+// Prefers: labelled > future > further future
+const scoreDate = (dateStr, isLabelled) => {
+  if (!dateStr) return -1;
+  const d = new Date(dateStr);
+  const today = new Date();
+  const daysAhead = (d - today) / 86400000;
+  // Labelled dates (with EXP/BB prefix) get strong bonus
+  let score = isLabelled ? 10000 : 0;
+  // Prefer dates 1 month–5 years ahead (typical expiry window)
+  if (daysAhead >= 30 && daysAhead <= 5 * 365) score += 500;
+  else if (daysAhead > 0 && daysAhead < 30) score += 100; // imminent expiry
+  else if (daysAhead > 5 * 365) score += 50; // very far future (canned goods)
+  return score + daysAhead; // tie-break by furthest date
+};
 
-    // ── 3. DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY ──
-    { re: /\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](20\d{2}|[2-9]\d)\b/,
-      parse: m => buildDate(m[3], m[2], m[1]) },
+// ── Main date extractor ───────────────────────────────────────────────────────
+const extractDateFromText = (rawText) => {
+  if (!rawText) return null;
 
-    // ── 4. DD-MON-YYYY  "15 JAN 2026" ──
-    { re: new RegExp(`\\b(0?[1-9]|[12]\\d|3[01])[\\s\\-\\/\\.](${MONTH_RE})[\\s\\-\\/\\.](20\\d{2}|[2-9]\\d)\\b`,'i'),
-      parse: m => { const mo = MONTH_MAP[m[2].replace(/\.$/,'').toUpperCase()]; return mo ? buildDate(m[3], mo, m[1]) : null; } },
+  const t = fixOCRText(rawText);
 
-    // ── 5. MON-YYYY  "JAN 2026", "JANUARY 26" ──
-    { re: new RegExp(`\\b(${MONTH_RE})[\\s\\-\\/\\.](20\\d{2}|[2-9]\\d)\\b`,'i'),
-      parse: m => { const mo = MONTH_MAP[m[1].replace(/\.$/,'').toUpperCase()]; return mo ? buildDate(m[2], mo, 1) : null; } },
+  const MONTH_RE = '(?:JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)';
 
-    // ── 6. YYYY-MON  "2026-JAN" ──
-    { re: new RegExp(`\\b(20\\d{2})[\\s\\-\\/\\.](${MONTH_RE})\\b`,'i'),
-      parse: m => { const mo = MONTH_MAP[m[2].replace(/\.$/,'').toUpperCase()]; return mo ? buildDate(m[1], mo, 1) : null; } },
+  // Label keywords that mark EXPIRY (not manufacture)
+  const EXP_LABEL = '(?:BEST\\s*BEFORE|USE\\s*BY|USE\\s*BEFORE|EXPIRY\\s*DATE?|EXP(?:IRY|IRES?)?|BB|B\\.B\\.|CONSUME\\s*BEFORE|CONSUME\\s*BY)';
+  // Label keywords that mark MANUFACTURE — we use these to EXCLUDE nearby dates
+  const MFD_LABEL = '(?:MFG\\.?\\s*DATE|MFD|MANUFACTURED|DOM|DATE\\s*OF\\s*MFG|PACKED\\s*ON|PKD\\s*ON|MFGD?)';
 
-    // ── 7. MM/YYYY  "06/2026", "06-2026" ──
-    { re: /\b(0?[1-9]|1[0-2])[\/\-](20\d{2})\b/,
-      parse: m => buildDate(m[2], m[1], 1) },
+  const SEP = '[\\s\\-\\/\\.\\,]?';
 
-    // ── 8. MMYYYY (no separator, common Indian print) "062026" ──
-    { re: /\b(0[1-9]|1[0-2])(20[2-9]\d)\b/,
-      parse: m => buildDate(m[2], m[1], 1) },
+  // Collect ALL candidate dates with their score
+  const candidates = [];
 
-    // ── 9. DDMMYYYY (no sep) "31012026" ──
-    { re: /\b(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])(20\d{2})\b/,
-      parse: m => buildDate(m[3], m[2], m[1]) },
+  const tryAdd = (dateStr, isLabelled) => {
+    if (!dateStr) return;
+    const score = scoreDate(dateStr, isLabelled);
+    if (score >= 0) candidates.push({ dateStr, score });
+  };
 
-    // ── 10. DD/MM/YY two-digit year "31/01/26" ──
-    { re: /\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.]([2-9]\d)\b/,
-      parse: m => buildDate(m[3], m[2], m[1]) },
+  // ── LABELLED patterns (high confidence — has EXP/BB prefix) ──────────────
 
-    // ── 11. MON DD YYYY (US format) "JAN 15 2026" ──
-    { re: new RegExp(`\\b(${MONTH_RE})[\\s\\-\\/\\.](0?[1-9]|[12]\\d|3[01])[\\s\\,\\.\\-](20\\d{2})\\b`,'i'),
-      parse: m => { const mo = MONTH_MAP[m[1].replace(/\.$/,'').toUpperCase()]; return mo ? buildDate(m[3], mo, m[2]) : null; } },
+  // EXP: DD/MM/YYYY or DD-MM-YY
+  const p1 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(\\d{1,2})[\\s\\/\\-\\.](\\d{1,2})[\\s\\/\\-\\.](\\d{2,4})`, 'gi');
+  for (const m of t.matchAll(p1)) tryAdd(buildDate(m[3], m[2], m[1]), true);
 
-    // ── 12. YYYY/MM/DD ──
-    { re: /\b(20\d{2})[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])\b/,
-      parse: m => buildDate(m[1], m[2], m[3]) },
+  // EXP: DD-MON-YYYY  "EXP: 15-JAN-2026"
+  const p2 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(\\d{1,2})[\\s\\-\\/\\.](${MONTH_RE})[\\s\\-\\/\\.](\\d{2,4})`, 'gi');
+  for (const m of t.matchAll(p2)) {
+    const mo = MONTH_MAP[m[2].replace(/\.$/,'')];
+    tryAdd(buildDate(m[3], mo, m[1]), true);
+  }
 
-    // ── 13. Loose: any 4-digit year next to a month name ──
-    { re: new RegExp(`(20\\d{2})[\\s\\-\\/\\.](${MONTH_RE})`,'i'),
-      parse: m => { const mo = MONTH_MAP[m[2].replace(/\.$/,'').toUpperCase()]; return mo ? buildDate(m[1], mo, 1) : null; } },
-  ];
+  // EXP: MON YYYY  "BB: JAN 2026"
+  const p3 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(${MONTH_RE})[\\s\\-\\/\\.](\\d{2,4})`, 'gi');
+  for (const m of t.matchAll(p3)) {
+    const mo = MONTH_MAP[m[1].replace(/\.$/,'')];
+    tryAdd(buildDate(m[2], mo, 1), true);
+  }
 
-  // Try all patterns, return first valid date found
-  for (const { re, parse } of patterns) {
-    // Use matchAll to catch all occurrences and pick latest valid
-    const matches = [...t.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g'))];
-    for (const m of matches) {
-      try {
-        const result = parse(m);
-        if (result) return result;
-      } catch(e) { /* skip bad match */ }
+  // EXP: MM/YYYY  "EXP: 06/2026"
+  const p4 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(\\d{1,2})[\\s\\/\\-\\.](\\d{4})`, 'gi');
+  for (const m of t.matchAll(p4)) tryAdd(buildDate(m[2], m[1], 1), true);
+
+  // EXP: YYYY  "BEST BEFORE 2027"
+  const p5 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(20[2-9]\\d)\\b`, 'gi');
+  for (const m of t.matchAll(p5)) tryAdd(buildDate(m[1], 12, 31), true);
+
+  // ── Build MFD exclusion zones ─────────────────────────────────────────────
+  // Find positions of MFD labels so we can ignore dates near them
+  const mfdPositions = [];
+  const mfdRe = new RegExp(MFD_LABEL, 'gi');
+  for (const m of t.matchAll(mfdRe)) mfdPositions.push(m.index);
+
+  const nearMFD = (idx) => mfdPositions.some(pos => Math.abs(idx - pos) < 40);
+
+  // ── UNLABELLED patterns (lower confidence — no prefix) ───────────────────
+
+  // ISO: YYYY-MM-DD
+  const p6 = /\b(20[2-9]\d)[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])\b/g;
+  for (const m of t.matchAll(p6)) {
+    if (!nearMFD(m.index)) tryAdd(buildDate(m[1], m[2], m[3]), false);
+  }
+
+  // DD/MM/YYYY
+  const p7 = /\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](20[2-9]\d)\b/g;
+  for (const m of t.matchAll(p7)) {
+    if (!nearMFD(m.index)) tryAdd(buildDate(m[3], m[2], m[1]), false);
+  }
+
+  // DD-MON-YYYY  "15 JAN 2026"
+  const p8 = new RegExp(`\\b(0?[1-9]|[12]\\d|3[01])[\\s\\-\\/\\.](${MONTH_RE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`, 'gi');
+  for (const m of t.matchAll(p8)) {
+    if (!nearMFD(m.index)) {
+      const mo = MONTH_MAP[m[2].replace(/\.$/,'')];
+      tryAdd(buildDate(m[3], mo, m[1]), false);
     }
   }
 
-  return null;
+  // MON YYYY  "JAN 2026"
+  const p9 = new RegExp(`\\b(${MONTH_RE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`, 'gi');
+  for (const m of t.matchAll(p9)) {
+    if (!nearMFD(m.index)) {
+      const mo = MONTH_MAP[m[1].replace(/\.$/,'')];
+      tryAdd(buildDate(m[2], mo, 1), false);
+    }
+  }
+
+  // YYYY-MON  "2026-JAN"
+  const p10 = new RegExp(`\\b(20[2-9]\\d)[\\s\\-\\/\\.](${MONTH_RE})\\b`, 'gi');
+  for (const m of t.matchAll(p10)) {
+    if (!nearMFD(m.index)) {
+      const mo = MONTH_MAP[m[2].replace(/\.$/,'')];
+      tryAdd(buildDate(m[1], mo, 1), false);
+    }
+  }
+
+  // MM/YYYY  "06/2026"
+  const p11 = /\b(0?[1-9]|1[0-2])[\/\-](20[2-9]\d)\b/g;
+  for (const m of t.matchAll(p11)) {
+    if (!nearMFD(m.index)) tryAdd(buildDate(m[2], m[1], 1), false);
+  }
+
+  // DD/MM/YY two-digit year  "31/01/26"
+  const p12 = /\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.]([2-9]\d)\b/g;
+  for (const m of t.matchAll(p12)) {
+    if (!nearMFD(m.index)) tryAdd(buildDate(m[3], m[2], m[1]), false);
+  }
+
+  // MMYYYY no separator "062026" — common Indian stamp
+  const p13 = /\b(0[1-9]|1[0-2])(20[2-9]\d)\b/g;
+  for (const m of t.matchAll(p13)) {
+    if (!nearMFD(m.index)) tryAdd(buildDate(m[2], m[1], 1), false);
+  }
+
+  // MON DD YYYY (US)  "JAN 15 2026"
+  const p14 = new RegExp(`\\b(${MONTH_RE})[\\s\\-\\/\\.](0?[1-9]|[12]\\d|3[01])[\\s\\,\\.\\-](20[2-9]\\d)\\b`, 'gi');
+  for (const m of t.matchAll(p14)) {
+    if (!nearMFD(m.index)) {
+      const mo = MONTH_MAP[m[1].replace(/\.$/,'')];
+      tryAdd(buildDate(m[3], mo, m[2]), false);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Pick the highest-scoring candidate
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].dateStr;
 };
 
 // ── Step Indicator ────────────────────────────────
