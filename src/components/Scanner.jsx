@@ -122,9 +122,9 @@ const extractDateFromText = (rawText) => {
   const MONTH_RE = '(?:JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)';
 
   // Label keywords that mark EXPIRY (not manufacture)
-  const EXP_LABEL = '(?:BEST\\s*BEFORE|USE\\s*BY|USE\\s*BEFORE|EXPIRY\\.?\\s*DATE\\.?|EXPIRY\\.?|EXP\\.?(?:IRY|IRES?|\\s*DATE\\.?)?|BB|B\\.B\\.|CONSUME\\s*BEFORE|CONSUME\\s*BY)';
+  const EXP_LABEL = '(?:BEST\\s*BEFORE|USE\\s*BY|USE\\s*BEFORE|EXPIRY\\.?\\s*DATE\\.?|EXPIRY\\.?|EXP\\.?(?:IRY|IRES?|\\s*DATE\\.?|\\s*DT\\.?)?|EXPDT\\.?|BB|B\\.B\\.|CONSUME\\s*BEFORE|CONSUME\\s*BY)';
   // Label keywords that mark MANUFACTURE — we use these to EXCLUDE nearby dates
-  const MFD_LABEL = '(?:MFG\\.?\\s*DATE\\.?|MFD\\.?|MANUFACTURED|DOM|DATE\\s*OF\\s*(?:MFG|MANUFACTURING|PACKAGING|PACKING)|PACKED\\s*ON|PKD\\.?\\s*ON|MFGD?|DATE\\s*OF\\s*MFG)';
+  const MFD_LABEL = '(?:MFG\\.?\\s*DATE\\.?|MFD\\.?|MANUFACTURED|DOM|DATE\\s*OF\\s*(?:MFG|MANUFACTURING|PACKAGING|PACKING)|PACKED\\s*ON|PKD\\.?\\s*ON|MFGD?\\.?|DATE\\s*OF\\s*MFG|MFD\\s*\\.)';
 
   const SEP = '[\\s\\-\\/\\.\\,]?';
 
@@ -139,8 +139,8 @@ const extractDateFromText = (rawText) => {
 
   // ── LABELLED patterns (high confidence — has EXP/BB prefix) ──────────────
 
-  // EXP: DD/MM/YYYY or DD-MM-YY
-  const p1 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(\\d{1,2})[\\s\\/\\-\\.](\\d{1,2})[\\s\\/\\-\\.](\\d{2,4})`, 'gi');
+  // EXP: DD/MM/YYYY or DD-MM-YY  (includes EXP.29.01.26 — no space after label)
+  const p1 = new RegExp(`${EXP_LABEL}[:\\-.]?\\s*(\\d{1,2})[\\s\/\\-\\.](\\d{1,2})[\\s\/\\-\\.](\\d{2,4})`, 'gi');
   for (const m of t.matchAll(p1)) tryAdd(buildDate(m[3], m[2], m[1]), true);
 
   // EXP: DD-MON-YYYY  "EXP: 15-JAN-2026"
@@ -325,12 +325,50 @@ const Scanner = ({ onProductScanned }) => {
     setScanning(false);
   };
 
+  // Preprocess image for better OCR on stamped/dot-matrix text
+  const preprocessForOCR = (sourceCanvas) => {
+    const src = sourceCanvas;
+    // Create a new canvas 2x bigger — Tesseract works better on larger images
+    const out = document.createElement('canvas');
+    const scale = 2.5;
+    out.width  = src.width  * scale;
+    out.height = src.height * scale;
+    const ctx = out.getContext('2d');
+
+    // Step 1: Draw scaled up
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(src, 0, 0, out.width, out.height);
+
+    // Step 2: Greyscale + high contrast via pixel manipulation
+    const imageData = ctx.getImageData(0, 0, out.width, out.height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      // Greyscale
+      const grey = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+      // Increase contrast: push towards black or white
+      const contrast = 1.8;
+      const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
+      const enhanced = Math.min(255, Math.max(0, factor * (grey - 128) + 128));
+      // Hard threshold: above 140 = white, below = black (helps stamped text)
+      const binary = enhanced > 140 ? 255 : 0;
+      data[i] = data[i+1] = data[i+2] = binary;
+      data[i+3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    return out.toDataURL('image/png'); // PNG lossless — better for OCR than JPEG
+  };
+
   const captureFrame = () => {
     const v = videoRef.current, c = canvasRef.current;
     if (!v || !c) return null;
     c.width = v.videoWidth||640; c.height = v.videoHeight||480;
     c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-    return c.toDataURL('image/jpeg', 0.92);
+    // Return both raw and preprocessed
+    const raw = c.toDataURL('image/jpeg', 0.92);
+    const processed = preprocessForOCR(c);
+    return { raw, processed };
   };
 
   // ── STEP 1: Barcode ───────────────────────────
@@ -395,30 +433,59 @@ const Scanner = ({ onProductScanned }) => {
 
   const captureAndOCR = async () => {
     setOcrRunning(true);
-    showProgress('Capturing…');
-    const img = captureFrame();
-    if (!img) { setOcrRunning(false); return; }
-    setCapturedImg(img);
+    showProgress('Capturing image…');
+    const frames = captureFrame();
+    if (!frames) { setOcrRunning(false); return; }
+    setCapturedImg(frames.raw);
     stopCamera();
-    showProgress('Reading text with OCR…');
 
     try {
-      const { data:{ text } } = await Tesseract.recognize(img, 'eng', {
-        logger: m => {
-          if (m.status==='recognizing text')
-            showProgress(`OCR reading: ${Math.round(m.progress*100)}%`);
-        }
-      });
-      setOcrRawText(text);
-      const found = extractDateFromText(text);
-      if (found) {
-        setExpiryDate(found);
-        const friendly = new Date(found + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
+      // ── Run OCR on PREPROCESSED image (best for stamped/dot-matrix text) ──
+      showProgress('Enhancing image for OCR…');
+      const tesseractConfig = {
+        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz./-: ',
+        preserve_interword_spaces: '1',
+      };
+
+      let bestText = '';
+      let bestDate = null;
+
+      // Pass 1: preprocessed image (high contrast B&W) — best for stamps
+      showProgress('OCR pass 1/2 — reading stamped text…');
+      try {
+        const r1 = await Tesseract.recognize(frames.processed, 'eng', {
+          logger: m => { if (m.status==='recognizing text') showProgress(`OCR pass 1: ${Math.round(m.progress*100)}%`); },
+          ...tesseractConfig,
+        });
+        const d1 = extractDateFromText(r1.data.text);
+        if (d1) { bestDate = d1; bestText = r1.data.text; }
+        else if (!bestText) bestText = r1.data.text;
+      } catch(e) { console.warn('OCR pass 1 failed', e); }
+
+      // Pass 2: raw image — good for clear printed text
+      if (!bestDate) {
+        showProgress('OCR pass 2/2 — reading printed text…');
+        try {
+          const r2 = await Tesseract.recognize(frames.raw, 'eng', {
+            logger: m => { if (m.status==='recognizing text') showProgress(`OCR pass 2: ${Math.round(m.progress*100)}%`); },
+          });
+          const d2 = extractDateFromText(r2.data.text);
+          if (d2) { bestDate = d2; bestText = r2.data.text; }
+          else if (r2.data.text.length > bestText.length) bestText = r2.data.text;
+        } catch(e) { console.warn('OCR pass 2 failed', e); }
+      }
+
+      setOcrRawText(bestText);
+
+      if (bestDate) {
+        setExpiryDate(bestDate);
+        const friendly = new Date(bestDate + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
         showProgress(`✅ Expiry date detected: ${friendly}`, 'success');
       } else {
         showProgress('⚠️ Could not detect date — please enter it manually below.', 'warn');
       }
     } catch(e) {
+      console.error('OCR error:', e);
       showProgress('⚠️ OCR failed — please enter expiry date below.', 'warn');
     }
     setOcrRunning(false);
