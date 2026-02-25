@@ -765,38 +765,17 @@ const Scanner = ({ onProductScanned }) => {
 
             <div className="sc-field sc-field--full">
               <label>
-                <i className="fas fa-calendar-alt"></i> Expiry Date *
-                {expiryDate && <span className="sc-ocr-badge"><i className="fas fa-magic"></i> OCR detected</span>}
+                <i className="fas fa-tag"></i> Expiry Date *
+                {expiryDate && <span className="sc-ocr-badge"><i className="fas fa-magic"></i> OCR auto-filled</span>}
               </label>
-              <div className="sc-expiry-row">
-                <input
-                  type="text"
-                  value={expiryText}
-                  onChange={e => handleExpiryTyping(e.target.value)}
-                  placeholder="e.g. 29.01.26 · JAN 2026 · 01/06/2026"
-                  className={`sc-expiry-text ${expiryDate ? 'valid' : expiryText ? 'invalid' : ''}`}
-                  autoComplete="off"
-                />
-                <label className="sc-cal-btn" title="Pick from calendar">
-                  <i className="fas fa-calendar-alt"></i>
-                  <input
-                    type="date"
-                    value={expiryDate}
-                    onChange={e => {
-                      setExpiryDate(e.target.value);
-                      // Show formatted date in text field when picked from calendar
-                      if (e.target.value) {
-                        const friendly = new Date(e.target.value + 'T00:00:00')
-                          .toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-                        setExpiryText(friendly);
-                      }
-                    }}
-                    min={new Date().toISOString().split('T')[0]}
-                    max={new Date(Date.now() + 15*365*86400000).toISOString().split('T')[0]}
-                    style={{position:'absolute',opacity:0,width:'100%',height:'100%',top:0,left:0,cursor:'pointer'}}
-                  />
-                </label>
-              </div>
+              <input
+                type="text"
+                value={expiryText}
+                onChange={e => handleExpiryTyping(e.target.value)}
+                placeholder="Expiry date will auto-fill after OCR scan"
+                className={`sc-expiry-text ${expiryDate ? 'valid' : expiryText ? 'invalid' : ''}`}
+                autoComplete="off"
+              />
               {expiryDate && (
                 <div className="sc-date-parsed">
                   <i className="fas fa-check-circle"></i>
@@ -805,10 +784,10 @@ const Scanner = ({ onProductScanned }) => {
                 </div>
               )}
               {expiryText && !expiryDate && (
-                <p className="sc-field-hint">Format not recognised — try: 29/01/2026 · JAN 2026 · 01-06-26</p>
+                <p className="sc-field-hint">⚠️ Not recognised — try: 29/01/2026 · JAN 2026 · 29.01.26</p>
               )}
               {!expiryText && (
-                <p className="sc-field-hint-soft">OCR auto-fills this · or type any format · or tap 📅</p>
+                <p className="sc-field-hint-soft">OCR will auto-fill this after Step 2 scan</p>
               )}
             </div>
 
