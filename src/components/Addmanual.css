@@ -190,3 +190,79 @@
   .am-submit-row { justify-content: stretch; }
   .am-submit-btn { width: 100%; justify-content: center; }
 }
+
+/* ── Calendar date picker wrapper ────────────────── */
+.am-date-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.am-date-wrapper input[type="date"] {
+  width: 100%;
+  padding: .75rem 2.75rem .75rem 1rem;
+  border: 1.5px solid #e2ebe4;
+  border-radius: 12px;
+  font-size: .95rem;
+  color: #1a2332;
+  background: #fafafa;
+  outline: none;
+  transition: all .22s;
+  font-family: inherit;
+  box-sizing: border-box;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.am-date-wrapper input[type="date"]:focus {
+  border-color: #4a7c59;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(74,124,89,.12);
+}
+
+.am-date-wrapper input[type="date"]:valid {
+  border-color: #4a7c59;
+  background: #f0faf1;
+  color: #1b5e20;
+  font-weight: 600;
+}
+
+.am-date-icon {
+  position: absolute;
+  right: .875rem;
+  color: #4a7c59;
+  font-size: 1rem;
+  pointer-events: none;
+}
+
+/* Force calendar picker icon green */
+.am-date-wrapper input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0;  /* hide default, show our icon */
+  width: 2rem;
+  height: 100%;
+  position: absolute;
+  right: 0;
+  cursor: pointer;
+}
+
+/* Date confirmation text below field */
+.am-date-display {
+  margin-top: .4rem;
+  padding: .45rem .875rem;
+  background: #e8f5e9;
+  border-radius: 8px;
+  font-size: .8rem;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.am-date-display i { color: #43a047; }
+
+@media (max-width: 480px) {
+  .am-date-wrapper input[type="date"] {
+    font-size: 1rem; /* prevents iOS zoom */
+  }
+}
