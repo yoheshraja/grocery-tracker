@@ -113,6 +113,8 @@ const scoreDate = (dateStr, isLabelled) => {
   return score + daysAhead; // tie-break by furthest date
 };
 
+// ── Pull the raw date string from OCR text to display in the text field ─────
+// Returns the shortest substring that contains the detected date, e.g. "29.01.26"
 // ── Main date extractor ───────────────────────────────────────────────────────
 const extractDateFromText = (rawText) => {
   if (!rawText) return null;
@@ -257,6 +259,34 @@ const extractDateFromText = (rawText) => {
   return candidates[0].dateStr;
 };
 
+const extractRawDateSnippet = (ocrText, parsedDate) => {
+  if (!ocrText || !parsedDate) return null;
+  const t = ocrText.toUpperCase();
+  const MONTH_RE = '(?:JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)';
+  // Try all common patterns and return the first matching raw string
+  const snippetPatterns = [
+    // DD.MM.YY or DD/MM/YYYY
+    /\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}/g,
+    // DD MON YYYY or MON YYYY
+    new RegExp(`\b\d{1,2}\s+${MONTH_RE}\s+\d{2,4}\b`, 'g'),
+    new RegExp(`\b${MONTH_RE}[\s\-\/]\d{2,4}\b`, 'g'),
+    // MM/YYYY
+    /\d{1,2}[\/\-]\d{4}/g,
+  ];
+  for (const re of snippetPatterns) {
+    const matches = [...t.matchAll(re)];
+    for (const m of matches) {
+      // Verify this snippet actually parses to our detected date
+      const testDate = extractDateFromText(m[0]);
+      if (testDate === parsedDate) return m[0];
+    }
+  }
+  // Fallback: return the parsed date in a readable format
+  return new Date(parsedDate + 'T00:00:00')
+    .toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+};
+
+
 // ── Step Indicator ────────────────────────────────
 const StepIndicator = ({ step }) => (
   <div className="step-indicator">
@@ -286,7 +316,8 @@ const Scanner = ({ onProductScanned }) => {
   const [progressType,  setProgressType] = useState('info'); // info|success|warn
   const [error,         setError]        = useState('');
   const [productData,   setProductData]  = useState(null);
-  const [expiryDate,    setExpiryDate]   = useState(''); // YYYY-MM-DD for calendar input
+  const [expiryDate,    setExpiryDate]   = useState(''); // YYYY-MM-DD internal value
+  const [expiryText,    setExpiryText]   = useState(''); // raw text shown in input field
   const [ocrRunning,    setOcrRunning]   = useState(false);
   const [ocrRawText,    setOcrRawText]   = useState('');
   const [capturedImg,   setCapturedImg]  = useState(null);
@@ -298,6 +329,24 @@ const Scanner = ({ onProductScanned }) => {
   const codeReader = useRef(new BrowserMultiFormatReader());
 
   const showProgress = (msg, type='info') => { setProgress(msg); setProgressType(type); };
+
+  // Live parser — converts any typed format to YYYY-MM-DD as user types
+  const handleExpiryTyping = (val) => {
+    setExpiryText(val);
+    if (!val.trim()) { setExpiryDate(''); return; }
+    const parsed = extractDateFromText(val);
+    if (parsed) {
+      setExpiryDate(parsed);
+    } else {
+      // Try native Date parse as last resort (handles "2026-06-01" typed directly)
+      const d = new Date(val);
+      if (!isNaN(d.getTime()) && d >= new Date()) {
+        setExpiryDate(d.toISOString().split('T')[0]);
+      } else {
+        setExpiryDate('');
+      }
+    }
+  };
 
 
   // ── Camera helpers ────────────────────────────
@@ -373,7 +422,7 @@ const Scanner = ({ onProductScanned }) => {
 
   // ── STEP 1: Barcode ───────────────────────────
   const startBarcodeStep = async () => {
-    setError(''); setProductData(null); setExpiryDate('');
+    setError(''); setProductData(null); setExpiryDate(''); setExpiryText('');
     setOcrRawText(''); setCapturedImg(null); setProgress('');
     setStep(1); setScanning(true);
     showProgress('Opening camera…');
@@ -478,6 +527,10 @@ const Scanner = ({ onProductScanned }) => {
       setOcrRawText(bestText);
 
       if (bestDate) {
+        // Show what OCR actually read in the text field, not a formatted version
+        // Extract just the date portion from OCR text to show in the field
+        const rawSnippet = extractRawDateSnippet(bestText, bestDate);
+        setExpiryText(rawSnippet || bestDate);
         setExpiryDate(bestDate);
         const friendly = new Date(bestDate + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
         showProgress(`✅ Expiry date detected: ${friendly}`, 'success');
@@ -509,7 +562,7 @@ const Scanner = ({ onProductScanned }) => {
         expiryDate,
         scanDate:  new Date().toISOString(),
       });
-      setStep(0); setProductData(null); setExpiryDate('');
+      setStep(0); setProductData(null); setExpiryDate(''); setExpiryText('');
       setOcrRawText(''); setCapturedImg(null);
       showProgress('✅ Product added to your inventory!', 'success');
       setTimeout(() => setProgress(''), 3500);
@@ -522,7 +575,7 @@ const Scanner = ({ onProductScanned }) => {
   const reset = () => {
     stopCamera();
     setStep(0); setProgress(''); setError('');
-    setProductData(null); setExpiryDate('');
+    setProductData(null); setExpiryDate(''); setExpiryText('');
     setOcrRawText(''); setCapturedImg(null);
   };
 
@@ -713,24 +766,49 @@ const Scanner = ({ onProductScanned }) => {
             <div className="sc-field sc-field--full">
               <label>
                 <i className="fas fa-calendar-alt"></i> Expiry Date *
-                {expiryDate && <span className="sc-ocr-badge"><i className="fas fa-magic"></i> OCR auto-filled</span>}
+                {expiryDate && <span className="sc-ocr-badge"><i className="fas fa-magic"></i> OCR detected</span>}
               </label>
-              <input
-                type="date"
-                value={expiryDate}
-                onChange={e => setExpiryDate(e.target.value)}
-                min={new Date(Date.now() - 365*86400000).toISOString().split('T')[0]}
-                max={new Date(Date.now() + 15*365*86400000).toISOString().split('T')[0]}
-                className={expiryDate ? 'sc-input-valid' : ''}
-              />
+              <div className="sc-expiry-row">
+                <input
+                  type="text"
+                  value={expiryText}
+                  onChange={e => handleExpiryTyping(e.target.value)}
+                  placeholder="e.g. 29.01.26 · JAN 2026 · 01/06/2026"
+                  className={`sc-expiry-text ${expiryDate ? 'valid' : expiryText ? 'invalid' : ''}`}
+                  autoComplete="off"
+                />
+                <label className="sc-cal-btn" title="Pick from calendar">
+                  <i className="fas fa-calendar-alt"></i>
+                  <input
+                    type="date"
+                    value={expiryDate}
+                    onChange={e => {
+                      setExpiryDate(e.target.value);
+                      // Show formatted date in text field when picked from calendar
+                      if (e.target.value) {
+                        const friendly = new Date(e.target.value + 'T00:00:00')
+                          .toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+                        setExpiryText(friendly);
+                      }
+                    }}
+                    min={new Date().toISOString().split('T')[0]}
+                    max={new Date(Date.now() + 15*365*86400000).toISOString().split('T')[0]}
+                    style={{position:'absolute',opacity:0,width:'100%',height:'100%',top:0,left:0,cursor:'pointer'}}
+                  />
+                </label>
+              </div>
               {expiryDate && (
                 <div className="sc-date-parsed">
                   <i className="fas fa-check-circle"></i>
                   <strong>{new Date(expiryDate + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</strong>
+                  <span className="sc-date-iso">{expiryDate}</span>
                 </div>
               )}
-              {!expiryDate && (
-                <p className="sc-field-hint-soft">OCR will auto-fill this — or pick from calendar</p>
+              {expiryText && !expiryDate && (
+                <p className="sc-field-hint">Format not recognised — try: 29/01/2026 · JAN 2026 · 01-06-26</p>
+              )}
+              {!expiryText && (
+                <p className="sc-field-hint-soft">OCR auto-fills this · or type any format · or tap 📅</p>
               )}
             </div>
 
