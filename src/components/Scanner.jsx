@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
+import expiryExtractor from './expiryDateExtractor';
 import Tesseract from 'tesseract.js';
 import './Scanner.css';
 
