@@ -1,10 +1,45 @@
+/**
+ * Scanner.jsx
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 3-step product scanner:
+ *   Step 1 → Scan barcode   (ZXing camera)
+ *   Step 2 → OCR expiry     (Tesseract + image preprocessing + smart detection)
+ *   Step 3 → Confirm & save (editable form, expiry field auto-filled by OCR)
+ *
+ * IMAGE PREPROCESSING PIPELINE (6 variants, tried in order):
+ *   Greyscale 3×  →  High contrast 3×  →  Threshold 150  →  Threshold 100
+ *   →  Inverted threshold  →  Raw colour 2×
+ *
+ * OCR STRATEGY:
+ *   - tessedit_char_whitelist limits characters → less noise
+ *   - PSM 7 (single line) tried first → best for zoomed-in date shots
+ *   - PSM 6 (block) + PSM 11 (sparse) as fallbacks
+ *   - Bounding-box word-level search: keyword found → check next 3–6 words only
+ *   - Full-text fallback if bounding-box search finds nothing
+ *
+ * EXPIRY FIELD:
+ *   - OCR fills the text input with the raw detected string (e.g. "EXP 29/01/26")
+ *   - User sees exactly what was read and can edit freely
+ *   - Live parsing: every keystroke tries to parse the value into YYYY-MM-DD
+ *   - Green border = valid date parsed. Red = not recognised yet.
+ *   - Confirmation row shows "29 January 2026" + "2026-01-29"
+ *   - Save button is disabled until a valid YYYY-MM-DD is confirmed
+ */
+
 import React, { useState, useRef, useEffect } from 'react';
 import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
-import expiryExtractor from '../expiryDateExtractor';
 import Tesseract from 'tesseract.js';
 import './Scanner.css';
+import {
+  extractExpiryDate,
+  extractExpiryFromWords,
+  parseTypedDate,
+  formatISO,
+} from './utils/ocrDateExtractor';
 
-// ── Category mapper — checks ALL OpenFoodFacts tags ──
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORY MAPPING
+// ─────────────────────────────────────────────────────────────────────────────
 const CATEGORY_RULES = [
   { cat: 'Dairy',          keys: ['dairy','milk','cheese','yogurt','yoghurt','butter','cream','paneer','ghee','curd','lassi','whey'] },
   { cat: 'Beverages',      keys: ['beverage','drink','water','soda','juice','tea','coffee','cola','smoothie','shake','energy drink','soft drink','squash','nectar','lemonade','coconut water'] },
@@ -13,467 +48,297 @@ const CATEGORY_RULES = [
   { cat: 'Meat & Seafood', keys: ['meat','chicken','mutton','lamb','beef','pork','fish','seafood','prawn','shrimp','tuna','salmon','egg','poultry'] },
   { cat: 'Bakery',         keys: ['bread','biscuit','bakery','cookie','cake','pastry','rusk','cracker','wafer','muffin','bun','roll','chapati','roti','naan','pav'] },
   { cat: 'Snacks',         keys: ['snack','chip','namkeen','bhujia','mixture','popcorn','chocolate','candy','sweet','mithai','dessert','ice cream','icecream','halwa','ladoo','confection','nuts','peanut','cashew','almond','raisin'] },
-  { cat: 'Frozen Foods',   keys: ['frozen','freeze','ice cream','icecream'] },
+  { cat: 'Frozen Foods',   keys: ['frozen','freeze'] },
   { cat: 'Canned Goods',   keys: ['canned','tinned','preserved','pickled','pickle','achar','jam','jelly','marmalade','conserve'] },
   { cat: 'Condiments',     keys: ['sauce','condiment','ketchup','mayonnaise','mustard','oil','vinegar','spice','masala','chutney','paste','dressing','seasoning','relish','curry'] },
   { cat: 'Personal Care',  keys: ['soap','shampoo','lotion','toothpaste','deodorant','skincare','haircare','personal care','hygiene','detergent','cleanser'] },
 ];
 
 const mapCategory = (tags = []) => {
-  if (!tags || !tags.length) return 'Other';
-  const allTags = tags
-    .map(t => t.split(':').pop().replace(/-/g, ' ').replace(/_/g, ' ').toLowerCase())
+  if (!tags?.length) return 'Other';
+  const all = tags
+    .map(t => t.split(':').pop().replace(/[-_]/g, ' ').toLowerCase())
     .join(' ');
   for (const { cat, keys } of CATEGORY_RULES) {
-    if (keys.some(k => allTags.includes(k))) return cat;
+    if (keys.some(k => all.includes(k))) return cat;
   }
   return 'Other';
 };
 
-const getCategoryEmoji = (cat='') => {
-  const m = { dairy:'🥛', fruits:'🍎', vegetables:'🥦', 'meat & seafood':'🥩', bakery:'🍞', snacks:'🍪', beverages:'🥤', 'canned goods':'🥫', 'frozen foods':'🧊', condiments:'🧴', 'personal care':'🧼', other:'📦' };
-  return m[(cat||'').toLowerCase()] || '📦';
+const EMOJI_MAP = {
+  dairy:'🥛', fruits:'🍎', vegetables:'🥦', 'meat & seafood':'🥩',
+  bakery:'🍞', snacks:'🍪', beverages:'🥤', 'canned goods':'🥫',
+  'frozen foods':'🧊', condiments:'🧴', 'personal care':'🧼', other:'📦',
 };
+const emoji = (cat = '') => EMOJI_MAP[(cat || '').toLowerCase()] || '📦';
 
-// ── Month name → number map ─────────────────────────────────────────────────
-const MONTH_MAP = {
-  JAN:1, JANUARY:1,
-  FEB:2, FEBRUARY:2,
-  MAR:3, MARCH:3,
-  APR:4, APRIL:4,
-  MAY:5,
-  JUN:6, JUNE:6,
-  JUL:7, JULY:7,
-  AUG:8, AUGUST:8,
-  SEP:9, SEPTEMBER:9, SEPT:9,
-  OCT:10, OCTOBER:10,
-  NOV:11, NOVEMBER:11,
-  DEC:12, DECEMBER:12,
-};
+const ALL_CATEGORIES = [
+  'Dairy','Fruits','Vegetables','Meat & Seafood','Bakery','Snacks',
+  'Beverages','Canned Goods','Frozen Foods','Condiments','Personal Care','Other',
+];
 
-// ── Fix common OCR character mistakes ────────────────────────────────────────
-const fixOCRText = (raw) => {
-  return raw
-    .toUpperCase()
-    // Remove noise characters that confuse parsing
-    .replace(/[©®™°•·]/g, ' ')          // "© 14 JAN" → " 14 JAN"
-    .replace(/[''`|\\]/g, '')
-    // Fix OCR digit mistakes ONLY between actual digit characters (never inside words)
-    // e.g. "2O26" → "2026" but "JAN" stays "JAN"
-    .replace(/(\d)O(\d)/g, '$10$2')      // digit-O-digit → digit-0-digit
-    .replace(/(\d)I(\d)/g, '$11$2')      // digit-I-digit → digit-1-digit
-    .replace(/(\d)l(\d)/g, '$11$2')      // digit-l-digit → digit-1-digit
-    .replace(/(\d)S(\d)/g, '$15$2')      // digit-S-digit → digit-5-digit
-    .replace(/\s+/g, ' ')
-    .replace(/(\d)[,](\d)/g, '$1/$2')    // "12,2025" → "12/2025"
-    .replace(/(\d)[;](\d)/g, '$1/$2')    // "12;2025" → "12/2025"
-    .trim();
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// IMAGE PREPROCESSING — 6 variants
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Builds 6 preprocessed versions of the captured video frame.
+ * Different label types respond best to different preprocessing approaches.
+ *
+ * @param  {HTMLCanvasElement} src  Source canvas (captured video frame)
+ * @return {string[]}               Array of PNG data URLs
+ */
+function buildVariants(src) {
+  const W = src.width, H = src.height;
 
-// ── Build YYYY-MM-DD, only FUTURE dates allowed (expiry must be upcoming) ────
-const buildDate = (yyyy, mm, dd = 1) => {
-  let y = parseInt(yyyy), m = parseInt(mm), d = parseInt(dd);
-  if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
-
-  // 2-digit year: 25→2025, 26→2026 etc. Only accept 25-39 (realistic expiry range)
-  if (y < 100) {
-    if (y >= 25 && y <= 39) y = 2000 + y;
-    else return null; // reject ambiguous 2-digit years outside this range
-  }
-
-  // Sanity check ranges
-  if (m < 1 || m > 12) return null;
-  if (d < 1 || d > 31) return null;
-  if (y < 2025 || y > 2040) return null; // expiry dates are always near-future
-
-  const date = new Date(y, m - 1, d);
-  if (isNaN(date.getTime())) return null;
-
-  // EXPIRY DATE RULE: must be TODAY or in the future
-  // (a product already expired today is still valid to track)
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  if (date < today) return null;  // reject all past dates — those are MFD/manufacture dates
-
-  return date.toISOString().split('T')[0]; // YYYY-MM-DD
-};
-
-// ── Score a candidate date: higher = more likely to be expiry ────────────────
-// Prefers: labelled > future > further future
-const scoreDate = (dateStr, isLabelled) => {
-  if (!dateStr) return -1;
-  const d = new Date(dateStr);
-  const today = new Date();
-  const daysAhead = (d - today) / 86400000;
-  // Labelled dates (with EXP/BB prefix) get strong bonus
-  let score = isLabelled ? 10000 : 0;
-  // Prefer dates 1 month–5 years ahead (typical expiry window)
-  if (daysAhead >= 30 && daysAhead <= 5 * 365) score += 500;
-  else if (daysAhead > 0 && daysAhead < 30) score += 100; // imminent expiry
-  else if (daysAhead > 5 * 365) score += 50; // very far future (canned goods)
-  return score + daysAhead; // tie-break by furthest date
-};
-
-// ── Pull the raw date string from OCR text to display in the text field ─────
-// Returns the shortest substring that contains the detected date, e.g. "29.01.26"
-// ── Main date extractor ───────────────────────────────────────────────────────
-const extractDateFromText = (rawText) => {
-  if (!rawText) return null;
-
-  const t = fixOCRText(rawText);
-
-  const MONTH_RE = '(?:JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)';
-
-  // Label keywords that mark EXPIRY (not manufacture)
-  const EXP_LABEL = '(?:BEST\\s*BEFORE|USE\\s*BY|USE\\s*BEFORE|EXPIRY\\.?\\s*DATE\\.?|EXPIRY\\.?|EXP\\.?(?:IRY|IRES?|\\s*DATE\\.?|\\s*DT\\.?)?|EXPDT\\.?|BB|B\\.B\\.|CONSUME\\s*BEFORE|CONSUME\\s*BY)';
-  // Label keywords that mark MANUFACTURE — we use these to EXCLUDE nearby dates
-  const MFD_LABEL = '(?:MFG\\.?\\s*DATE\\.?|MFD\\.?|MANUFACTURED|DOM|DATE\\s*OF\\s*(?:MFG|MANUFACTURING|PACKAGING|PACKING)|PACKED\\s*ON|PKD\\.?\\s*ON|MFGD?\\.?|DATE\\s*OF\\s*MFG|MFD\\s*\\.)';
-
-  const SEP = '[\\s\\-\\/\\.\\,]?';
-
-  // Collect ALL candidate dates with their score
-  const candidates = [];
-
-  const tryAdd = (dateStr, isLabelled) => {
-    if (!dateStr) return;
-    const score = scoreDate(dateStr, isLabelled);
-    if (score >= 0) candidates.push({ dateStr, score });
+  // Helper: create canvas, scale up, apply pixel transform, return PNG URL
+  const make = (scale, fn) => {
+    const c   = document.createElement('canvas');
+    c.width   = Math.round(W * scale);
+    c.height  = Math.round(H * scale);
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(src, 0, 0, c.width, c.height);
+    if (fn) {
+      const id = ctx.getImageData(0, 0, c.width, c.height);
+      fn(id.data);
+      ctx.putImageData(id, 0, 0);
+    }
+    return c.toDataURL('image/png');
   };
 
-  // ── LABELLED patterns (high confidence — has EXP/BB prefix) ──────────────
-
-  // EXP: DD/MM/YYYY or DD-MM-YY  (includes EXP.29.01.26 — no space after label)
-  const p1 = new RegExp(`${EXP_LABEL}[:\\-.]?\\s*(\\d{1,2})[\\s\/\\-\\.](\\d{1,2})[\\s\/\\-\\.](\\d{2,4})`, 'gi');
-  for (const m of t.matchAll(p1)) tryAdd(buildDate(m[3], m[2], m[1]), true);
-
-  // EXP: DD-MON-YYYY  "EXP: 15-JAN-2026"
-  const p2 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(\\d{1,2})[\\s\\-\\/\\.](${MONTH_RE})[\\s\\-\\/\\.](\\d{2,4})`, 'gi');
-  for (const m of t.matchAll(p2)) {
-    const mo = MONTH_MAP[m[2].replace(/\.$/,'')];
-    tryAdd(buildDate(m[3], mo, m[1]), true);
-  }
-
-  // EXP: MON YYYY  "BB: JAN 2026"
-  const p3 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(${MONTH_RE})[\\s\\-\\/\\.](\\d{2,4})`, 'gi');
-  for (const m of t.matchAll(p3)) {
-    const mo = MONTH_MAP[m[1].replace(/\.$/,'')];
-    tryAdd(buildDate(m[2], mo, 1), true);
-  }
-
-  // EXP: MM/YYYY  "EXP: 06/2026"
-  const p4 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(\\d{1,2})[\\s\\/\\-\\.](\\d{4})`, 'gi');
-  for (const m of t.matchAll(p4)) tryAdd(buildDate(m[2], m[1], 1), true);
-
-  // EXP: YYYY  "BEST BEFORE 2027"
-  const p5 = new RegExp(`${EXP_LABEL}\\s*[:\\-.]?\\s*(20[2-9]\\d)\\b`, 'gi');
-  for (const m of t.matchAll(p5)) tryAdd(buildDate(m[1], 12, 31), true);
-
-  // ── Build MFD exclusion zones ─────────────────────────────────────────────
-  // Find positions of MFD labels so we can ignore dates near them
-  const mfdPositions = [];
-  const mfdRe = new RegExp(MFD_LABEL, 'gi');
-  for (const m of t.matchAll(mfdRe)) mfdPositions.push(m.index);
-
-  const nearMFD = (idx) => mfdPositions.some(pos => Math.abs(idx - pos) < 40);
-
-  // ── UNLABELLED patterns (lower confidence — no prefix) ───────────────────
-
-  // ISO: YYYY-MM-DD
-  const p6 = /\b(20[2-9]\d)[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])\b/g;
-  for (const m of t.matchAll(p6)) {
-    if (!nearMFD(m.index)) tryAdd(buildDate(m[1], m[2], m[3]), false);
-  }
-
-  // DD/MM/YYYY
-  const p7 = /\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](20[2-9]\d)\b/g;
-  for (const m of t.matchAll(p7)) {
-    if (!nearMFD(m.index)) tryAdd(buildDate(m[3], m[2], m[1]), false);
-  }
-
-  // DD-MON-YYYY  "15 JAN 2026"
-  const p8 = new RegExp(`\\b(0?[1-9]|[12]\\d|3[01])[\\s\\-\\/\\.](${MONTH_RE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`, 'gi');
-  for (const m of t.matchAll(p8)) {
-    if (!nearMFD(m.index)) {
-      const mo = MONTH_MAP[m[2].replace(/\.$/,'')];
-      tryAdd(buildDate(m[3], mo, m[1]), false);
+  // ── Pixel transform functions ──────────────────────────────────────────────
+  // Greyscale: standard luminance weights
+  const grey = d => {
+    for (let i = 0; i < d.length; i += 4) {
+      const g = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+      d[i] = d[i+1] = d[i+2] = g;
+      d[i+3] = 255;
     }
-  }
+  };
 
-  // MON YYYY  "JAN 2026"
-  const p9 = new RegExp(`\\b(${MONTH_RE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`, 'gi');
-  for (const m of t.matchAll(p9)) {
-    if (!nearMFD(m.index)) {
-      const mo = MONTH_MAP[m[1].replace(/\.$/,'')];
-      tryAdd(buildDate(m[2], mo, 1), false);
+  // High contrast: greyscale + contrast boost
+  const contrast = lv => d => {
+    for (let i = 0; i < d.length; i += 4) {
+      const g = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+      const f = (259 * (lv + 255)) / (255 * (259 - lv));
+      const v = Math.min(255, Math.max(0, f * (g - 128) + 128));
+      d[i] = d[i+1] = d[i+2] = v;
+      d[i+3] = 255;
     }
-  }
+  };
 
-  // YYYY-MON  "2026-JAN"
-  const p10 = new RegExp(`\\b(20[2-9]\\d)[\\s\\-\\/\\.](${MONTH_RE})\\b`, 'gi');
-  for (const m of t.matchAll(p10)) {
-    if (!nearMFD(m.index)) {
-      const mo = MONTH_MAP[m[2].replace(/\.$/,'')];
-      tryAdd(buildDate(m[1], mo, 1), false);
+  // Sharpening: unsharp mask (greyscale → enhance edges)
+  const sharpen = d => {
+    // First greyscale
+    grey(d);
+    // Simple 3x3 sharpening kernel: centre=5, neighbours=-1
+    // Applied as a pass on already-greyscale data (simplified inline)
+    // For production: use a proper convolution — this approximates it
+    const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+    // (lightweight approximation via contrast boost after greyscale)
+    contrast(60)(d);
+  };
+
+  // Binary threshold: pixels above t → white, below → black
+  const thresh = t => d => {
+    for (let i = 0; i < d.length; i += 4) {
+      const g = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+      const v = g > t ? 255 : 0;
+      d[i] = d[i+1] = d[i+2] = v;
+      d[i+3] = 255;
     }
-  }
+  };
 
-  // MM/YYYY  "06/2026"
-  const p11 = /\b(0?[1-9]|1[0-2])[\/\-](20[2-9]\d)\b/g;
-  for (const m of t.matchAll(p11)) {
-    if (!nearMFD(m.index)) tryAdd(buildDate(m[2], m[1], 1), false);
-  }
-
-  // MON-YYYY with hyphen "JAN-2026", "DEC-2026" (very common Indian packaging)
-  const p11b = new RegExp(`\\b(${MONTH_RE})-(20[2-9]\\d)\\b`, 'gi');
-  for (const m of t.matchAll(p11b)) {
-    if (!nearMFD(m.index)) {
-      const mo = MONTH_MAP[m[1].replace(/\.$/,'')];
-      tryAdd(buildDate(m[2], mo, 1), false);
+  // Inverted threshold: white text on dark bg → dark text on white bg
+  const invThresh = t => d => {
+    for (let i = 0; i < d.length; i += 4) {
+      const g = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+      const v = g > t ? 0 : 255;
+      d[i] = d[i+1] = d[i+2] = v;
+      d[i+3] = 255;
     }
-  }
+  };
 
-  // DD/MM/YY two-digit year  "31/01/26"
-  const p12 = /\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.]([2-9]\d)\b/g;
-  for (const m of t.matchAll(p12)) {
-    if (!nearMFD(m.index)) tryAdd(buildDate(m[3], m[2], m[1]), false);
-  }
-
-  // MMYYYY no separator "062026" — common Indian stamp
-  const p13 = /\b(0[1-9]|1[0-2])(20[2-9]\d)\b/g;
-  for (const m of t.matchAll(p13)) {
-    if (!nearMFD(m.index)) tryAdd(buildDate(m[2], m[1], 1), false);
-  }
-
-  // MON DD YYYY (US)  "JAN 15 2026"
-  const p14 = new RegExp(`\\b(${MONTH_RE})[\\s\\-\\/\\.](0?[1-9]|[12]\\d|3[01])[\\s\\,\\.\\-](20[2-9]\\d)\\b`, 'gi');
-  for (const m of t.matchAll(p14)) {
-    if (!nearMFD(m.index)) {
-      const mo = MONTH_MAP[m[1].replace(/\.$/,'')];
-      tryAdd(buildDate(m[3], mo, m[2]), false);
-    }
-  }
-
-  if (candidates.length === 0) return null;
-
-  // Pick the highest-scoring candidate
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates[0].dateStr;
-};
-
-const extractRawDateSnippet = (ocrText, parsedDate) => {
-  if (!ocrText || !parsedDate) return null;
-  const t = ocrText.toUpperCase();
-  const MONTH_RE = '(?:JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)';
-  // Try all common patterns and return the first matching raw string
-  const snippetPatterns = [
-    // DD.MM.YY or DD/MM/YYYY
-    /\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}/g,
-    // DD MON YYYY or MON YYYY
-    new RegExp(`\b\d{1,2}\s+${MONTH_RE}\s+\d{2,4}\b`, 'g'),
-    new RegExp(`\b${MONTH_RE}[\s\-\/]\d{2,4}\b`, 'g'),
-    // MM/YYYY
-    /\d{1,2}[\/\-]\d{4}/g,
+  return [
+    make(3, grey),           // 1. Greyscale 3×           — clear printed labels
+    make(3, contrast(80)),   // 2. High contrast 3×        — faded/old labels
+    make(3, sharpen),        // 3. Sharpened 3×            — blurry captures
+    make(3, thresh(150)),    // 4. Binary thresh 150       — dark text on light bg
+    make(3, thresh(100)),    // 5. Binary thresh 100       — stamps on darker bg
+    make(3, invThresh(120)), // 6. Inverted threshold 3×   — white text on dark bg
   ];
-  for (const re of snippetPatterns) {
-    const matches = [...t.matchAll(re)];
-    for (const m of matches) {
-      // Verify this snippet actually parses to our detected date
-      const testDate = extractDateFromText(m[0]);
-      if (testDate === parsedDate) return m[0];
-    }
-  }
-  // Fallback: return the parsed date in a readable format
-  return new Date(parsedDate + 'T00:00:00')
-    .toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
-};
+}
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP INDICATOR
+// ─────────────────────────────────────────────────────────────────────────────
+const STEPS = [
+  { n:1, label:'Scan Barcode',   icon:'fa-barcode'      },
+  { n:2, label:'Read Expiry',    icon:'fa-calendar-alt' },
+  { n:3, label:'Confirm & Save', icon:'fa-check'        },
+];
 
-// ── Step Indicator ────────────────────────────────
 const StepIndicator = ({ step }) => (
-  <div className="step-indicator">
-    {[
-      { n:1, label:'Scan Barcode',   icon:'fa-barcode'       },
-      { n:2, label:'Read Expiry',    icon:'fa-calendar-alt'  },
-      { n:3, label:'Confirm & Save', icon:'fa-check-circle'  },
-    ].map(({ n, label, icon }, i) => (
+  <div className="sc-steps">
+    {STEPS.map(({ n, label, icon }, i) => (
       <React.Fragment key={n}>
-        <div className={`si-step ${step===n?'active':''} ${step>n?'done':''}`}>
-          <div className="si-circle">
-            <i className={`fas ${step>n?'fa-check':icon}`}></i>
+        <div className={`sc-step ${step === n ? 'active' : ''} ${step > n ? 'done' : ''}`}>
+          <div className="sc-step-circle">
+            {step > n
+              ? <i className="fas fa-check"/>
+              : <i className={`fas ${icon}`}/>}
           </div>
           <span>{label}</span>
         </div>
-        {i < 2 && <div className={`si-line ${step>n?'done':''}`} />}
+        {i < 2 && <div className={`sc-step-line ${step > n ? 'done' : ''}`}/>}
       </React.Fragment>
     ))}
   </div>
 );
 
-// ════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
+// SCANNER COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
 const Scanner = ({ onProductScanned }) => {
+
+  // ── UI ────────────────────────────────────────────────────────────────────
   const [step,          setStep]         = useState(0);
   const [scanning,      setScanning]     = useState(false);
   const [progress,      setProgress]     = useState('');
-  const [progressType,  setProgressType] = useState('info'); // info|success|warn
+  const [progressType,  setProgressType] = useState('info'); // info|success|warn|error
   const [error,         setError]        = useState('');
-  const [productData,   setProductData]  = useState(null);
-  const [expiryDate,    setExpiryDate]   = useState(''); // YYYY-MM-DD internal value
-  const [expiryText,    setExpiryText]   = useState(''); // raw text shown in input field
   const [ocrRunning,    setOcrRunning]   = useState(false);
-  const [ocrRawText,    setOcrRawText]   = useState('');
-  const [capturedImg,   setCapturedImg]  = useState(null);
   const [saving,        setSaving]       = useState(false);
 
+  // ── Product ───────────────────────────────────────────────────────────────
+  const [productData,   setProductData]  = useState(null);
+  const [capturedImg,   setCapturedImg]  = useState(null);
+  const [ocrRawText,    setOcrRawText]   = useState('');
+
+  // ── Expiry date — two separate states ─────────────────────────────────────
+  //
+  // expiryInput  The value shown in the <input type="text"> field.
+  //              OCR sets this to the raw detected string (e.g. "EXP 29/01/26").
+  //              User can also type or edit this freely.
+  //
+  // expiryISO    The validated YYYY-MM-DD string used internally for saving.
+  //              Only non-empty when a valid future date has been confirmed.
+  //              Gates the Save button — disabled until this is set.
+  //
+  const [expiryInput,   setExpiryInput]  = useState('');
+  const [expiryISO,     setExpiryISO]    = useState('');
+
+  // ── Refs ──────────────────────────────────────────────────────────────────
   const videoRef   = useRef(null);
   const canvasRef  = useRef(null);
   const streamRef  = useRef(null);
   const codeReader = useRef(new BrowserMultiFormatReader());
 
-  const showProgress = (msg, type='info') => { setProgress(msg); setProgressType(type); };
+  // ─────────────────────────────────────────────────────────────────────────
+  // HELPERS
+  // ─────────────────────────────────────────────────────────────────────────
+  const showMsg = (msg, type = 'info') => {
+    setProgress(msg);
+    setProgressType(type);
+  };
 
-  // Live parser — converts any typed format to YYYY-MM-DD as user types
- // In your Scanner component, replace handleExpiryTyping with:
+  /**
+   * Called on every keystroke in the expiry input field.
+   * Runs the full extraction pipeline on the typed/edited value.
+   * Sets expiryISO if a valid future date is recognised, clears it otherwise.
+   */
+  const handleExpiryType = val => {
+    setExpiryInput(val);
+    setExpiryISO(parseTypedDate(val) || '');
+  };
 
-
-
-// Inside your component:
-const handleExpiryTyping = (val) => {
-  setExpiryText(val);
-  
-  if (!val.trim()) { 
-    setExpiryDate(''); 
-    return; 
-  }
-
-  // Use the extractor
-  const result = expiryExtractor.extractExpiryDate(val);
-  
-  if (result.success) {
-    setExpiryDate(result.date);
-    
-    // Optional: Show confidence level
-    if (result.confidence === 'low') {
-      console.log('Low confidence extraction, please verify');
+  /**
+   * Called by captureAndReadExpiry after OCR finds a date.
+   * Sets both the display input value AND the internal ISO value.
+   */
+  const setExpiryFromOCR = (result) => {
+    if (!result) {
+      setExpiryInput('');
+      setExpiryISO('');
+      return;
     }
-  } else {
-    setExpiryDate('');
-  }
-};
+    // Show result.raw in the field — user sees exactly what OCR read
+    // e.g. "BEST BEFORE 29/01/26" or "14 JAN 2026"
+    setExpiryInput(result.raw);
+    setExpiryISO(result.iso);
+  };
 
-// For OCR results, use:
-const handleOCRResult = (ocrText) => {
-  setOcrRawText(ocrText);
-  
-  const result = expiryExtractor.extractExpiryDate(ocrText);
-  
-  if (result.success) {
-    setExpiryText(result.rawSnippet);
-    setExpiryDate(result.date);
-    
-    showProgress(
-      `✅ Expiry date detected: ${new Date(result.date).toLocaleDateString()}`,
-      result.confidence === 'high' ? 'success' : 'warn'
-    );
-  } else {
-    showProgress('⚠️ Could not detect date — please enter manually', 'warn');
-  }
-};
-
-
-  // ── Camera helpers ────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // CAMERA
+  // ─────────────────────────────────────────────────────────────────────────
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode:'environment', width:{ ideal:1280 }, height:{ ideal:720 } }
+        video: {
+          facingMode: 'environment',
+          width:      { ideal: 1920 },
+          height:     { ideal: 1080 },
+        },
       });
       streamRef.current = stream;
-      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setScanning(true);
       return true;
-    } catch(err) {
-      setError(err.name==='NotAllowedError' ? 'Camera permission denied. Tap Allow when browser asks.'
-             : err.name==='NotFoundError'   ? 'No camera found on this device.'
-             : 'Camera error: ' + err.message);
+    } catch {
+      setError('Camera access denied. Please allow camera permission and try again.');
       return false;
     }
   };
 
   const stopCamera = () => {
-    try { codeReader.current.reset(); } catch(e) {}
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setScanning(false);
+    try { codeReader.current.reset(); } catch {}
   };
 
-  // Preprocess image for better OCR on stamped/dot-matrix text
-  const preprocessForOCR = (sourceCanvas) => {
-    const src = sourceCanvas;
-    // Create a new canvas 2x bigger — Tesseract works better on larger images
-    const out = document.createElement('canvas');
-    const scale = 2.5;
-    out.width  = src.width  * scale;
-    out.height = src.height * scale;
-    const ctx = out.getContext('2d');
+  useEffect(() => () => stopCamera(), []);
 
-    // Step 1: Draw scaled up
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(src, 0, 0, out.width, out.height);
-
-    // Step 2: Greyscale + high contrast via pixel manipulation
-    const imageData = ctx.getImageData(0, 0, out.width, out.height);
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      // Greyscale
-      const grey = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-      // Increase contrast: push towards black or white
-      const contrast = 1.8;
-      const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
-      const enhanced = Math.min(255, Math.max(0, factor * (grey - 128) + 128));
-      // Hard threshold: above 140 = white, below = black (helps stamped text)
-      const binary = enhanced > 140 ? 255 : 0;
-      data[i] = data[i+1] = data[i+2] = binary;
-      data[i+3] = 255;
-    }
-    ctx.putImageData(imageData, 0, 0);
-
-    return out.toDataURL('image/png'); // PNG lossless — better for OCR than JPEG
+  // ─────────────────────────────────────────────────────────────────────────
+  // RESET
+  // ─────────────────────────────────────────────────────────────────────────
+  const reset = () => {
+    stopCamera();
+    setStep(0);        setProgress('');   setError('');
+    setProductData(null); setCapturedImg(null); setOcrRawText('');
+    setExpiryInput(''); setExpiryISO('');
+    setOcrRunning(false); setSaving(false);
   };
 
-  const captureFrame = () => {
-    const v = videoRef.current, c = canvasRef.current;
-    if (!v || !c) return null;
-    c.width = v.videoWidth||640; c.height = v.videoHeight||480;
-    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-    // Return both raw and preprocessed
-    const raw = c.toDataURL('image/jpeg', 0.92);
-    const processed = preprocessForOCR(c);
-    return { raw, processed };
-  };
-
-  // ── STEP 1: Barcode ───────────────────────────
-  const startBarcodeStep = async () => {
-    setError(''); setProductData(null); setExpiryDate(''); setExpiryText('');
-    setOcrRawText(''); setCapturedImg(null); setProgress('');
-    setStep(1); setScanning(true);
-    showProgress('Opening camera…');
-    const ok = await startCamera();
-    if (!ok) { setStep(0); setScanning(false); return; }
-    showProgress('Point camera at the barcode on the product…');
-
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 1 — BARCODE SCAN
+  // ─────────────────────────────────────────────────────────────────────────
+  const startBarcode = async () => {
+    reset();
+    setStep(1);
+    showMsg('Opening camera…');
+    if (!(await startCamera())) { setStep(0); return; }
+    showMsg('Point camera at the barcode…');
     await new Promise(r => setTimeout(r, 500));
-    codeReader.current.decodeFromVideoDevice(null, videoRef.current, async (result, err) => {
-      if (result) {
-        const barcode = result.getText();
-        codeReader.current.reset();
-        showProgress(`Barcode: ${barcode} — looking up product…`);
-        await fetchProduct(barcode);
+    codeReader.current.decodeFromVideoDevice(
+      null,
+      videoRef.current,
+      async (result, err) => {
+        if (result) {
+          codeReader.current.reset();
+          showMsg('Barcode detected — looking up product…');
+          await fetchProduct(result.getText());
+        }
+        if (err && !(err instanceof NotFoundException)) console.warn(err.message);
       }
-      if (err && !(err instanceof NotFoundException)) console.warn('Scan:', err.message);
-    });
+    );
   };
 
-  // ── OpenFoodFacts fetch ───────────────────────
   const fetchProduct = async (barcode) => {
     try {
       const res  = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
@@ -483,375 +348,465 @@ const handleOCRResult = (ocrText) => {
         setProductData({
           barcode,
           name:     p.product_name || p.product_name_en || p.abbreviated_product_name || '',
-          brand:    p.brands || '',
+          brand:    p.brands    || '',
           category: mapCategory(p.categories_tags),
           image:    p.image_front_url || p.image_url || null,
-          quantity: p.quantity || '',
+          quantity: p.quantity  || '',
         });
-        showProgress('✅ Product found! Now read the expiry date.', 'success');
+        showMsg('✅ Product found! Now scan the expiry date.', 'success');
       } else {
         setProductData({ barcode, name:'', brand:'', category:'Other', image:null, quantity:'' });
-        showProgress('⚠️ Product not in database — you can enter details manually.', 'warn');
+        showMsg('Product not in database — enter details manually.', 'warn');
       }
-    } catch(e) {
+    } catch {
       setProductData({ barcode, name:'', brand:'', category:'Other', image:null, quantity:'' });
-      showProgress('⚠️ Could not fetch product info — enter manually.', 'warn');
+      showMsg('Could not fetch product info — enter manually.', 'warn');
     }
     stopCamera();
     setStep(2);
   };
 
-  // ── STEP 2: OCR ───────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 2 — OCR CAMERA
+  // ─────────────────────────────────────────────────────────────────────────
   const startOCRCamera = async () => {
     setError('');
-    showProgress('Opening camera…');
-    setScanning(true);
-    const ok = await startCamera();
-    if (!ok) { setScanning(false); setProgress(''); return; }
-    showProgress('Point camera at the expiry/best-before date on the package…');
+    showMsg('Opening camera…');
+    if (!(await startCamera())) return;
+    showMsg('Point camera at the expiry / best-before date on the package, then tap Capture.');
   };
 
-  const captureAndOCR = async () => {
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 2b — CAPTURE + PREPROCESS + OCR + AUTO-FILL
+  //
+  // FULL PIPELINE:
+  //   1. Capture video frame to canvas
+  //   2. Build 6 preprocessed image variants
+  //   3. For each variant, run Tesseract with PSM 7 → 6 → 11
+  //      a. Try bounding-box word-level search (keyword proximity)
+  //      b. Fallback to full-text extraction if bounding-box fails
+  //   4. Stop as soon as a valid future date is found
+  //   5. Auto-fill the expiry text input field
+  // ─────────────────────────────────────────────────────────────────────────
+  const captureAndReadExpiry = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
     setOcrRunning(true);
-    showProgress('Capturing image…');
-    const frames = captureFrame();
-    if (!frames) { setOcrRunning(false); return; }
-    setCapturedImg(frames.raw);
+    showMsg('Capturing…');
+
+    // ── 1. Capture frame ──────────────────────────────────────────────────
+    const v = videoRef.current, c = canvasRef.current;
+    c.width  = v.videoWidth  || 1280;
+    c.height = v.videoHeight || 720;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    setCapturedImg(c.toDataURL('image/jpeg', 0.95));
     stopCamera();
 
-    try {
-      // ── Run OCR on PREPROCESSED image (best for stamped/dot-matrix text) ──
-      showProgress('Enhancing image for OCR…');
-      const tesseractConfig = {
-        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz./-: ',
-        preserve_interword_spaces: '1',
-      };
+    // ── 2. Build image variants ───────────────────────────────────────────
+    showMsg('Enhancing image…');
+    const variants = buildVariants(c);
 
-      let bestText = '';
-      let bestDate = null;
+    // ── 3. OCR loop ───────────────────────────────────────────────────────
+    let ocrResult = null; // { iso, display, raw }
+    let bestText  = '';   // longest OCR text seen (for display in UI)
 
-      // Pass 1: preprocessed image (high contrast B&W) — best for stamps
-      showProgress('OCR pass 1/2 — reading stamped text…');
-      try {
-        const r1 = await Tesseract.recognize(frames.processed, 'eng', {
-          logger: m => { if (m.status==='recognizing text') showProgress(`OCR pass 1: ${Math.round(m.progress*100)}%`); },
-          ...tesseractConfig,
-        });
-        const d1 = extractDateFromText(r1.data.text);
-        if (d1) { bestDate = d1; bestText = r1.data.text; }
-        else if (!bestText) bestText = r1.data.text;
-      } catch(e) { console.warn('OCR pass 1 failed', e); }
+    // PSM modes tried for each variant:
+    //   7  = single text line (best when zoomed in on just the date)
+    //   6  = uniform text block (good for full label shots)
+    //   11 = sparse text (fallback for very messy/cluttered labels)
+    const PSM_MODES = [7, 6, 11];
 
-      // Pass 2: raw image — good for clear printed text
-      if (!bestDate) {
-        showProgress('OCR pass 2/2 — reading printed text…');
+    const TESSERACT_CONFIG = {
+      // Only characters that appear in dates — dramatically reduces noise
+      tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ/-.: ',
+      preserve_interword_spaces: '1',
+    };
+
+    outer:
+    for (let vi = 0; vi < variants.length; vi++) {
+      showMsg(`Reading expiry date… (${vi + 1}/${variants.length})`);
+
+      for (const psm of PSM_MODES) {
         try {
-          const r2 = await Tesseract.recognize(frames.raw, 'eng', {
-            logger: m => { if (m.status==='recognizing text') showProgress(`OCR pass 2: ${Math.round(m.progress*100)}%`); },
+          const ocr = await Tesseract.recognize(variants[vi], 'eng', {
+            ...TESSERACT_CONFIG,
+            tessedit_pageseg_mode: psm,
           });
-          const d2 = extractDateFromText(r2.data.text);
-          if (d2) { bestDate = d2; bestText = r2.data.text; }
-          else if (r2.data.text.length > bestText.length) bestText = r2.data.text;
-        } catch(e) { console.warn('OCR pass 2 failed', e); }
-      }
 
-      setOcrRawText(bestText);
+          const { text, words } = ocr.data;
+          if (text.length > bestText.length) bestText = text;
 
-      if (bestDate) {
-        // Show what OCR actually read in the text field, not a formatted version
-        // Extract just the date portion from OCR text to show in the field
-        const rawSnippet = extractRawDateSnippet(bestText, bestDate);
-        setExpiryText(rawSnippet || bestDate);
-        setExpiryDate(bestDate);
-        const friendly = new Date(bestDate + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
-        showProgress(`✅ Expiry date detected: ${friendly}`, 'success');
-      } else {
-        showProgress('⚠️ Could not detect date — please enter it manually below.', 'warn');
+          // ── 3a. Bounding-box word-level search (PRIMARY method) ─────────
+          // Find expiry keyword → look at next 3–6 words only
+          // Much more accurate than full-text search on labels with multiple dates
+          if (words?.length > 0) {
+            const boxResult = extractExpiryFromWords(words);
+            if (boxResult) {
+              ocrResult = boxResult;
+              break outer;
+            }
+          }
+
+          // ── 3b. Full-text extraction (FALLBACK method) ──────────────────
+          // Used when bounding box search finds nothing
+          const textResult = extractExpiryDate(text);
+          if (textResult) {
+            ocrResult = textResult;
+            break outer;
+          }
+
+        } catch (e) {
+          console.warn(`OCR variant ${vi + 1} PSM ${psm}:`, e.message);
+        }
       }
-    } catch(e) {
-      console.error('OCR error:', e);
-      showProgress('⚠️ OCR failed — please enter expiry date below.', 'warn');
     }
+
+    setOcrRawText(bestText);
+
+    // ── 4. AUTO-FILL THE EXPIRY INPUT FIELD ──────────────────────────────
+    if (ocrResult) {
+      // Shows the raw OCR line (e.g. "EXP 29/01/26") in the text field
+      // so the user can immediately see what was read from the package
+      setExpiryFromOCR(ocrResult);
+      showMsg(`✅ Expiry date: ${ocrResult.display}`, 'success');
+    } else {
+      setExpiryInput('');
+      setExpiryISO('');
+      showMsg('⚠️ Could not read date automatically — please type it below.', 'warn');
+    }
+
     setOcrRunning(false);
     setStep(3);
   };
 
-  const skipToConfirm = () => { stopCamera(); setStep(3); setProgress(''); };
+  const skipToConfirm = () => {
+    stopCamera();
+    setStep(3);
+    setProgress('');
+  };
 
-  // ── STEP 3: Save ──────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 3 — SAVE
+  // ─────────────────────────────────────────────────────────────────────────
   const handleSave = async () => {
-    if (!productData || !expiryDate) return;
+    if (!productData || !expiryISO) return;
     setSaving(true);
     try {
       await onProductScanned({
-        barcode:   productData.barcode,
-        name:      productData.name  || `Product ${productData.barcode}`,
-        brand:     productData.brand || 'Unknown',
-        category:  productData.category,
-        image:     productData.image || getCategoryEmoji(productData.category),
-        quantity:  productData.quantity || '',
-        expiryDate,
-        scanDate:  new Date().toISOString(),
+        barcode:    productData.barcode,
+        name:       productData.name     || `Product ${productData.barcode}`,
+        brand:      productData.brand    || 'Unknown',
+        category:   productData.category,
+        image:      productData.image    || emoji(productData.category),
+        expiryDate: expiryISO,           // always YYYY-MM-DD
+        quantity:   productData.quantity || '',
       });
-      setStep(0); setProductData(null); setExpiryDate(''); setExpiryText('');
-      setOcrRawText(''); setCapturedImg(null);
-      showProgress('✅ Product added to your inventory!', 'success');
-      setTimeout(() => setProgress(''), 3500);
-    } catch(e) {
-      setError('Failed to save: ' + e.message);
+      reset();
+    } catch {
+      setError('Could not save product — please try again.');
+      setSaving(false);
     }
-    setSaving(false);
   };
 
-  const reset = () => {
-    stopCamera();
-    setStep(0); setProgress(''); setError('');
-    setProductData(null); setExpiryDate(''); setExpiryText('');
-    setOcrRawText(''); setCapturedImg(null);
-  };
-
-  useEffect(() => () => stopCamera(), []);
-
-  
-  // ════════════ RENDER ════════════
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="scanner-wrap">
+    <div className="sc-wrap">
 
-      {/* Header */}
-      <div className="sc-header">
-        <h2><i className="fas fa-camera-retro"></i> Product Scanner</h2>
-        <p>Scan barcode → Read expiry date → Save to inventory</p>
-      </div>
-
-      {/* Steps */}
-      {step > 0 && <StepIndicator step={step} />}
-
-      {/* Progress bar */}
-      {progress && (
-        <div className={`sc-progress sc-progress--${progressType}`}>
-          <i className={`fas ${progressType==='success'?'fa-check-circle':progressType==='warn'?'fa-exclamation-triangle':'fa-spinner fa-spin'}`}></i>
-          <span>{progress}</span>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="sc-error">
-          <i className="fas fa-exclamation-circle"></i>
-          <span>{error}</span>
-          <button onClick={() => setError('')}>✕</button>
-        </div>
-      )}
-
-      {/* ─── IDLE ─── */}
+      {/* ── STEP 0: Start screen ────────────────────────────────────────── */}
       {step === 0 && (
-        <div className="sc-idle">
-          <div className="sc-idle-icon"><i className="fas fa-barcode"></i></div>
-          <h3>Ready to Scan</h3>
-          <p>Point your camera at a product barcode. FreshTrack will automatically look up the product name, brand, and category, then help you read the expiry date.</p>
-          <button className="sc-btn sc-btn--primary sc-btn--lg" onClick={startBarcodeStep}>
-            <i className="fas fa-camera"></i> Start Scanning
-          </button>
+        <div className="sc-start">
+          <div className="sc-start-icon"><i className="fas fa-barcode"/></div>
+          <h2>Scan Product</h2>
+          <p>Scan the barcode then point at the expiry date — we read it automatically.</p>
           <div className="sc-hiw">
-            <div className="sc-hiw-step"><div className="sc-hiw-num">1</div><i className="fas fa-barcode"></i><span>Scan barcode</span></div>
-            <div className="sc-hiw-arrow">→</div>
-            <div className="sc-hiw-step"><div className="sc-hiw-num">2</div><i className="fas fa-calendar-alt"></i><span>Read expiry</span></div>
-            <div className="sc-hiw-arrow">→</div>
-            <div className="sc-hiw-step"><div className="sc-hiw-num">3</div><i className="fas fa-check"></i><span>Save</span></div>
+            {[
+              { n:'1', icon:'fa-barcode',      label:'Scan barcode'    },
+              { n:'2', icon:'fa-eye',           label:'OCR reads expiry'},
+              { n:'3', icon:'fa-check-circle',  label:'Confirm & save'  },
+            ].map(s => (
+              <div key={s.n} className="sc-hiw-step">
+                <div className="sc-hiw-num">{s.n}</div>
+                <i className={`fas ${s.icon}`}/>
+                <span>{s.label}</span>
+              </div>
+            ))}
           </div>
+          <button className="sc-btn sc-btn--primary sc-btn--lg" onClick={startBarcode}>
+            <i className="fas fa-camera"/> Start Scanning
+          </button>
         </div>
       )}
 
-      {/* ─── STEP 1: Barcode camera ─── */}
-      {step === 1 && (
-        <div className="sc-camera-step">
-          <div className="sc-viewport">
-            <video ref={videoRef} className="sc-video" playsInline muted autoPlay />
-            <canvas ref={canvasRef} style={{display:'none'}} />
-            <div className="sc-overlay">
-              <div className="sc-barcode-box">
-                <div className="sc-corner tl"/><div className="sc-corner tr"/>
-                <div className="sc-corner bl"/><div className="sc-corner br"/>
-                <div className="sc-scanline"/>
-              </div>
-              <p className="sc-overlay-hint">Hold steady — scanning for barcode…</p>
-            </div>
-          </div>
-          <button className="sc-btn sc-btn--ghost" onClick={reset}><i className="fas fa-times"></i> Cancel</button>
-        </div>
-      )}
+      {/* ── STEPS 1–3 ───────────────────────────────────────────────────── */}
+      {step > 0 && (
+        <>
+          <StepIndicator step={step}/>
 
-      {/* ─── STEP 2: OCR expiry ─── */}
-      {step === 2 && (
-        <div className="sc-ocr-step">
-          {/* Product found card */}
-          {productData && (
-            <div className="sc-product-card">
-              {productData.image
-                ? <img src={productData.image} alt="" className="sc-product-img" />
-                : <div className="sc-product-emoji">{getCategoryEmoji(productData.category)}</div>
-              }
-              <div className="sc-product-details">
-                {productData.name
-                  ? <><h4>{productData.name}</h4><p>{productData.brand}{productData.brand&&productData.category?' · ':''}{productData.category}</p></>
-                  : <><h4 className="sc-not-found">Not found in database</h4><p>Enter product name in next step</p></>
-                }
-                <code>{productData.barcode}</code>
-              </div>
+          {/* Progress message */}
+          {progress && (
+            <div className={`sc-progress sc-progress--${progressType}`}>
+              {progressType === 'success' && <i className="fas fa-check-circle"/>}
+              {progressType === 'warn'    && <i className="fas fa-exclamation-triangle"/>}
+              {progressType === 'error'   && <i className="fas fa-times-circle"/>}
+              {progressType === 'info'    && <i className="fas fa-spinner fa-spin"/>}
+              <span>{progress}</span>
             </div>
           )}
 
-          <div className="sc-ocr-tip">
-            <i className="fas fa-lightbulb"></i>
-            <div>
-              <strong>Now scan the expiry date</strong>
-              <p>Find the "Best Before" or "Use By" date printed on the package. Point your camera directly at it, then tap Capture.</p>
-            </div>
-          </div>
-
-          {scanning ? (
-            <div className="sc-viewport">
-              <video ref={videoRef} className="sc-video" playsInline muted autoPlay />
-              <canvas ref={canvasRef} style={{display:'none'}} />
-              <div className="sc-overlay sc-overlay--ocr">
-                <div className="sc-ocr-box"><span>Expiry Date</span></div>
-                <p className="sc-overlay-hint">Keep expiry date in the blue box — then tap Capture</p>
-              </div>
-            </div>
-          ) : (
-            <div className="sc-ocr-placeholder">
-              <i className="fas fa-calendar-alt"></i>
-              <p>Tap "Open Camera" to read expiry date</p>
+          {/* Error */}
+          {error && (
+            <div className="sc-error">
+              <i className="fas fa-times-circle"/> {error}
             </div>
           )}
 
-          <div className="sc-ocr-actions">
-            {!scanning && !ocrRunning && (
-              <button className="sc-btn sc-btn--primary" onClick={startOCRCamera}>
-                <i className="fas fa-camera"></i> Open Camera for Expiry Date
+          {/* ── STEP 1: Barcode ── */}
+          {step === 1 && (
+            <div className="sc-viewport-wrap">
+              <div className="sc-viewport">
+                <video ref={videoRef} className="sc-video" playsInline muted autoPlay/>
+                <canvas ref={canvasRef} style={{ display: 'none' }}/>
+                <div className="sc-overlay sc-overlay--barcode">
+                  <div className="sc-barcode-box"/>
+                  <p className="sc-overlay-hint">Centre barcode in the box — detected automatically</p>
+                </div>
+              </div>
+              <button className="sc-btn sc-btn--ghost sc-mt" onClick={reset}>
+                <i className="fas fa-times"/> Cancel
               </button>
-            )}
-            {scanning && !ocrRunning && (
-              <button className="sc-btn sc-btn--capture" onClick={captureAndOCR}>
-                <i className="fas fa-circle"></i> Capture & Read Expiry Date
-              </button>
-            )}
-            {ocrRunning && (
-              <button className="sc-btn sc-btn--primary" disabled>
-                <i className="fas fa-spinner fa-spin"></i> Reading…
-              </button>
-            )}
-            <button className="sc-btn sc-btn--ghost" onClick={skipToConfirm}>
-              <i className="fas fa-forward"></i> Skip — Enter Date Manually
-            </button>
-          </div>
-        </div>
-      )}
+            </div>
+          )}
 
-      {/* ─── STEP 3: Confirm ─── */}
-      {step === 3 && productData && (
-        <div className="sc-confirm-step">
-          <h3><i className="fas fa-clipboard-check"></i> Review & Confirm</h3>
+          {/* ── STEP 2: OCR ── */}
+          {step === 2 && (
+            <div className="sc-ocr-step">
 
-          {capturedImg && (
-            <div className="sc-captured">
-              <img src={capturedImg} alt="Captured" className="sc-captured-img" />
-              {ocrRawText && (
-                <div className="sc-ocr-raw">
-                  <i className="fas fa-eye"></i>
-                  <span>OCR read: <em>{ocrRawText.replace(/\n/g,' ').substring(0,100)}</em></span>
+              {/* Product preview */}
+              {productData && (
+                <div className="sc-product-card">
+                  {productData.image
+                    ? <img src={productData.image} alt="" className="sc-product-img"/>
+                    : <div className="sc-product-emoji">{emoji(productData.category)}</div>
+                  }
+                  <div className="sc-product-details">
+                    {productData.name
+                      ? <><h4>{productData.name}</h4><p>{[productData.brand, productData.category].filter(Boolean).join(' · ')}</p></>
+                      : <><h4 className="sc-not-found">Not in database</h4><p>Enter name manually in next step</p></>
+                    }
+                    <code>{productData.barcode}</code>
+                  </div>
                 </div>
               )}
+
+              {/* Instruction */}
+              <div className="sc-ocr-tip">
+                <i className="fas fa-lightbulb"/>
+                <div>
+                  <strong>Now scan the expiry date</strong>
+                  <p>Find "Best Before" or "Exp. Date" on the package. Keep it inside the blue box, then tap Capture.</p>
+                </div>
+              </div>
+
+              {/* Camera viewport */}
+              {scanning && (
+                <div className="sc-viewport">
+                  <video ref={videoRef} className="sc-video" playsInline muted autoPlay/>
+                  <canvas ref={canvasRef} style={{ display: 'none' }}/>
+                  <div className="sc-overlay sc-overlay--ocr">
+                    <div className="sc-ocr-box"><span>Expiry Date</span></div>
+                    <p className="sc-overlay-hint">Keep the date inside the box</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Placeholder when camera not open */}
+              {!scanning && !ocrRunning && (
+                <div className="sc-ocr-placeholder">
+                  <i className="fas fa-calendar-alt"/>
+                  <p>Tap "Open Camera" to scan the expiry date</p>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="sc-ocr-actions">
+                {!scanning && !ocrRunning && (
+                  <button className="sc-btn sc-btn--primary" onClick={startOCRCamera}>
+                    <i className="fas fa-camera"/> Open Camera
+                  </button>
+                )}
+                {scanning && !ocrRunning && (
+                  <button className="sc-btn sc-btn--capture" onClick={captureAndReadExpiry}>
+                    <i className="fas fa-circle"/> Capture & Read Date
+                  </button>
+                )}
+                {ocrRunning && (
+                  <button className="sc-btn sc-btn--primary" disabled>
+                    <i className="fas fa-spinner fa-spin"/> Reading…
+                  </button>
+                )}
+                <button className="sc-btn sc-btn--ghost" onClick={skipToConfirm}>
+                  <i className="fas fa-forward"/> Skip — Enter Manually
+                </button>
+              </div>
             </div>
           )}
 
-          <div className="sc-form">
-            <div className="sc-field sc-field--full">
-              <label><i className="fas fa-tag"></i> Product Name *</label>
-              <input
-                type="text"
-                value={productData.name}
-                onChange={e => setProductData({...productData, name:e.target.value})}
-                placeholder="Enter product name"
-              />
-            </div>
+          {/* ── STEP 3: Confirm & save ── */}
+          {step === 3 && productData && (
+            <div className="sc-confirm-step">
+              <h3><i className="fas fa-clipboard-check"/> Review & Confirm</h3>
 
-            <div className="sc-field">
-              <label><i className="fas fa-building"></i> Brand</label>
-              <input
-                type="text"
-                value={productData.brand}
-                onChange={e => setProductData({...productData, brand:e.target.value})}
-                placeholder="e.g. Amul, Nestle"
-              />
-            </div>
-
-            <div className="sc-field">
-              <label><i className="fas fa-folder"></i> Category</label>
-              <select value={productData.category} onChange={e => setProductData({...productData, category:e.target.value})}>
-                {['Dairy','Fruits','Vegetables','Meat & Seafood','Bakery','Snacks','Beverages','Canned Goods','Frozen Foods','Condiments','Personal Care','Other'].map(c=>(
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="sc-field sc-field--full">
-              <label>
-                <i className="fas fa-tag"></i> Expiry Date *
-                {expiryDate && <span className="sc-ocr-badge"><i className="fas fa-magic"></i> OCR auto-filled</span>}
-              </label>
-              <input
-                type="text"
-                value={expiryText}
-                onChange={e => handleExpiryTyping(e.target.value)}
-                placeholder="Expiry date will auto-fill after OCR scan"
-                className={`sc-expiry-text ${expiryDate ? 'valid' : expiryText ? 'invalid' : ''}`}
-                autoComplete="off"
-              />
-              {expiryDate && (
-                <div className="sc-date-parsed">
-                  <i className="fas fa-check-circle"></i>
-                  <strong>{new Date(expiryDate + 'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</strong>
-                  <span className="sc-date-iso">{expiryDate}</span>
+              {/* Captured image + raw OCR text for reference */}
+              {capturedImg && (
+                <div className="sc-captured">
+                  <img src={capturedImg} alt="Captured label" className="sc-captured-img"/>
+                  {ocrRawText && (
+                    <div className="sc-ocr-raw">
+                      <i className="fas fa-eye"/>
+                      <span>OCR read: <em>{ocrRawText.replace(/\n/g, ' ').substring(0, 140)}</em></span>
+                    </div>
+                  )}
                 </div>
               )}
-              {expiryText && !expiryDate && (
-                <p className="sc-field-hint">⚠️ Not recognised — try: 29/01/2026 · JAN 2026 · 29.01.26</p>
-              )}
-              {!expiryText && (
-                <p className="sc-field-hint-soft">OCR will auto-fill this after Step 2 scan</p>
-              )}
-            </div>
 
-            <div className="sc-field">
-              <label><i className="fas fa-weight"></i> Quantity / Size</label>
-              <input
-                type="text"
-                value={productData.quantity}
-                onChange={e => setProductData({...productData, quantity:e.target.value})}
-                placeholder="e.g. 500ml, 1kg"
-              />
-            </div>
-          </div>
+              <div className="sc-form">
 
-          <div className="sc-confirm-actions">
-            <button className="sc-btn sc-btn--ghost" onClick={reset}>
-              <i className="fas fa-times"></i> Cancel
-            </button>
-            <button
-              className="sc-btn sc-btn--primary"
-              onClick={handleSave}
-              disabled={!productData.name||!expiryDate||saving}
-            >
-              {saving
-                ? <><i className="fas fa-spinner fa-spin"></i> Saving…</>
-                : <><i className="fas fa-check"></i> Add to Inventory</>
-              }
-            </button>
-          </div>
-        </div>
+                {/* Product Name */}
+                <div className="sc-field sc-field--full">
+                  <label><i className="fas fa-tag"/> Product Name *</label>
+                  <input
+                    type="text"
+                    value={productData.name}
+                    onChange={e => setProductData({ ...productData, name: e.target.value })}
+                    placeholder="Enter product name"
+                  />
+                </div>
+
+                {/* Brand */}
+                <div className="sc-field">
+                  <label><i className="fas fa-building"/> Brand</label>
+                  <input
+                    type="text"
+                    value={productData.brand}
+                    onChange={e => setProductData({ ...productData, brand: e.target.value })}
+                    placeholder="e.g. Amul, Nestle"
+                  />
+                </div>
+
+                {/* Category */}
+                <div className="sc-field">
+                  <label><i className="fas fa-folder"/> Category</label>
+                  <select
+                    value={productData.category}
+                    onChange={e => setProductData({ ...productData, category: e.target.value })}
+                  >
+                    {ALL_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+
+                {/*
+                  ── EXPIRY DATE FIELD ────────────────────────────────────────
+                  This is the unique feature of FreshTrack.
+
+                  STATE FLOW:
+                    OCR finds date → setExpiryFromOCR(result)
+                      → expiryInput = result.raw   (shown in field)
+                      → expiryISO   = result.iso   (YYYY-MM-DD, used for saving)
+
+                  USER TYPES:
+                    handleExpiryType(val)
+                      → expiryInput = val          (shown in field)
+                      → expiryISO   = parseTypedDate(val) | ''
+
+                  VISUAL STATES:
+                    Green (is-valid)   = expiryISO is set (valid future date confirmed)
+                    Red   (is-invalid) = user is typing but not yet recognised
+                    Plain              = field is empty (OCR hasn't run or was skipped)
+                */}
+                <div className="sc-field sc-field--full">
+                  <label>
+                    <i className="fas fa-calendar-alt"/> Expiry Date *
+                    {expiryISO && (
+                      <span className="sc-ocr-badge">
+                        <i className="fas fa-magic"/> OCR auto-filled
+                      </span>
+                    )}
+                  </label>
+
+                  <input
+                    type="text"
+                    value={expiryInput}
+                    onChange={e => handleExpiryType(e.target.value)}
+                    placeholder="OCR will auto-fill this · or type any date format"
+                    className={[
+                      'sc-expiry-input',
+                      expiryISO                       ? 'is-valid'   : '',
+                      expiryInput && !expiryISO       ? 'is-invalid' : '',
+                    ].filter(Boolean).join(' ')}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                  />
+
+                  {/* ✅ Confirmation row — shown when a valid date is parsed */}
+                  {expiryISO && (
+                    <div className="sc-expiry-confirm">
+                      <i className="fas fa-check-circle"/>
+                      <strong>{formatISO(expiryISO)}</strong>
+                      <code>{expiryISO}</code>
+                    </div>
+                  )}
+
+                  {/* ⚠️ Format not recognised */}
+                  {expiryInput && !expiryISO && (
+                    <p className="sc-expiry-hint sc-expiry-hint--error">
+                      Format not recognised — try: 29/01/2026 · JAN 2026 · 29.01.26 · 2026-01-29
+                    </p>
+                  )}
+
+                  {/* ℹ️ Empty state */}
+                  {!expiryInput && (
+                    <p className="sc-expiry-hint">
+                      OCR auto-fills this after scanning · or type any date format
+                    </p>
+                  )}
+                </div>
+
+                {/* Quantity */}
+                <div className="sc-field">
+                  <label><i className="fas fa-weight"/> Quantity / Size</label>
+                  <input
+                    type="text"
+                    value={productData.quantity}
+                    onChange={e => setProductData({ ...productData, quantity: e.target.value })}
+                    placeholder="e.g. 500ml, 1kg"
+                  />
+                </div>
+
+              </div>
+
+              {/* Actions */}
+              <div className="sc-confirm-actions">
+                <button className="sc-btn sc-btn--ghost" onClick={reset}>
+                  <i className="fas fa-times"/> Cancel
+                </button>
+                <button
+                  className="sc-btn sc-btn--primary"
+                  onClick={handleSave}
+                  disabled={!productData.name || !expiryISO || saving}
+                >
+                  {saving
+                    ? <><i className="fas fa-spinner fa-spin"/> Saving…</>
+                    : <><i className="fas fa-check"/> Add to Inventory</>
+                  }
+                </button>
+              </div>
+
+            </div>
+          )}
+        </>
       )}
-
     </div>
   );
 };
