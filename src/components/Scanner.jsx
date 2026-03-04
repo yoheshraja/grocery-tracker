@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
-import expiryExtractor from './expiryDateExtractor';
+import expiryExtractor from '../expiryDateExtractor';
 import Tesseract from 'tesseract.js';
 import './Scanner.css';
 
@@ -332,22 +332,52 @@ const Scanner = ({ onProductScanned }) => {
   const showProgress = (msg, type='info') => { setProgress(msg); setProgressType(type); };
 
   // Live parser — converts any typed format to YYYY-MM-DD as user types
-  const handleExpiryTyping = (val) => {
-    setExpiryText(val);
-    if (!val.trim()) { setExpiryDate(''); return; }
-    const parsed = extractDateFromText(val);
-    if (parsed) {
-      setExpiryDate(parsed);
-    } else {
-      // Try native Date parse as last resort (handles "2026-06-01" typed directly)
-      const d = new Date(val);
-      if (!isNaN(d.getTime()) && d >= new Date()) {
-        setExpiryDate(d.toISOString().split('T')[0]);
-      } else {
-        setExpiryDate('');
-      }
+ // In your Scanner component, replace handleExpiryTyping with:
+
+
+
+// Inside your component:
+const handleExpiryTyping = (val) => {
+  setExpiryText(val);
+  
+  if (!val.trim()) { 
+    setExpiryDate(''); 
+    return; 
+  }
+
+  // Use the extractor
+  const result = expiryExtractor.extractExpiryDate(val);
+  
+  if (result.success) {
+    setExpiryDate(result.date);
+    
+    // Optional: Show confidence level
+    if (result.confidence === 'low') {
+      console.log('Low confidence extraction, please verify');
     }
-  };
+  } else {
+    setExpiryDate('');
+  }
+};
+
+// For OCR results, use:
+const handleOCRResult = (ocrText) => {
+  setOcrRawText(ocrText);
+  
+  const result = expiryExtractor.extractExpiryDate(ocrText);
+  
+  if (result.success) {
+    setExpiryText(result.rawSnippet);
+    setExpiryDate(result.date);
+    
+    showProgress(
+      `✅ Expiry date detected: ${new Date(result.date).toLocaleDateString()}`,
+      result.confidence === 'high' ? 'success' : 'warn'
+    );
+  } else {
+    showProgress('⚠️ Could not detect date — please enter manually', 'warn');
+  }
+};
 
 
   // ── Camera helpers ────────────────────────────
@@ -582,6 +612,7 @@ const Scanner = ({ onProductScanned }) => {
 
   useEffect(() => () => stopCamera(), []);
 
+  
   // ════════════ RENDER ════════════
   return (
     <div className="scanner-wrap">
