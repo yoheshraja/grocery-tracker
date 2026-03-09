@@ -1,528 +1,456 @@
-/* ═══════════════════════════════════════════════
-   FRESHTRACK — Scanner  (3-step flow)
-   ═══════════════════════════════════════════════ */
+/* Scanner.css — FreshTrack */
 
-.scanner-wrap {
-  max-width: 640px;
+/* ── Layout ── */
+.sc-wrap {
+  max-width: 520px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
+  padding: 0 0 2rem;
 }
 
-/* ── Header ─────────────────────────────────────── */
-.sc-header h2 {
-  font-size: 1.3rem; font-weight: 700; color: #1a2332;
-  display: flex; align-items: center; gap: .625rem; margin-bottom: .25rem;
-}
-.sc-header h2 i { color: #4a7c59; }
-.sc-header p { color: #6b7c93; font-size: .875rem; }
-
-/* ── Step Indicator ─────────────────────────────── */
-.step-indicator {
+/* ── Step Indicator ── */
+.sc-steps {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0;
-  padding: 1rem 0;
+  padding: 1rem 0 .5rem;
 }
-
-.si-step {
-  display: flex; flex-direction: column; align-items: center; gap: .4rem;
+.sc-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .35rem;
   min-width: 80px;
 }
-
-.si-circle {
-  width: 44px; height: 44px; border-radius: 50%;
-  border: 2px solid #e2ebe4;
+.sc-step-circle {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  border: 2px solid #d1d5db;
   background: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-size: .95rem; color: #bdbdbd;
+  font-size: .9rem; color: #9ca3af;
   transition: all .3s;
 }
-
-.si-step span {
-  font-size: .72rem; font-weight: 600; color: #9e9e9e;
-  text-align: center; line-height: 1.2;
+.sc-step span {
+  font-size: .7rem; font-weight: 600;
+  color: #9ca3af; text-align: center;
 }
-
-.si-step.active .si-circle { border-color: #4a7c59; background: #4a7c59; color: #fff; box-shadow: 0 0 0 4px rgba(74,124,89,.2); }
-.si-step.active span { color: #2d5a3d; }
-.si-step.done .si-circle { border-color: #a5d6a7; background: #e8f5e9; color: #43a047; }
-.si-step.done span { color: #43a047; }
-
-.si-line {
-  flex: 1; height: 2px; background: #e2ebe4;
-  min-width: 24px; max-width: 60px;
-  margin-bottom: 20px;
-  transition: background .3s;
+.sc-step.active .sc-step-circle {
+  border-color: #4a7c59; background: #4a7c59; color: #fff;
+  box-shadow: 0 0 0 5px rgba(74,124,89,.18);
 }
-.si-line.done { background: #a5d6a7; }
+.sc-step.active span { color: #2d5a3d; }
+.sc-step.done   .sc-step-circle { border-color: #86efac; background: #f0fdf4; color: #16a34a; }
+.sc-step.done   span { color: #16a34a; }
+.sc-step-line {
+  flex: 1; height: 2px; background: #e5e7eb;
+  min-width: 20px; max-width: 60px;
+  margin-bottom: 22px; transition: background .3s;
+}
+.sc-step-line.done { background: #86efac; }
 
-/* ── Progress ───────────────────────────────────── */
+/* ── Progress / Error ── */
 .sc-progress {
   display: flex; align-items: center; gap: .75rem;
-  padding: .875rem 1rem; border-radius: 12px;
-  font-size: .875rem; line-height: 1.4;
-  animation: fadeIn .25s ease;
-}
-@keyframes fadeIn { from{opacity:0;transform:translateY(-4px);} to{opacity:1;transform:translateY(0);} }
-
-.sc-progress--info    { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
-.sc-progress--success { background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; }
-.sc-progress--warn    { background: #fff8e1; color: #f57f17; border: 1px solid #ffe082; }
-
-/* ── Error ──────────────────────────────────────── */
-.sc-error {
-  display: flex; align-items: center; gap: .75rem;
-  padding: .875rem 1rem; border-radius: 12px;
-  background: #ffebee; color: #c62828; border: 1px solid #ef9a9a;
+  padding: .8rem 1rem; border-radius: 12px;
   font-size: .875rem;
 }
-.sc-error button { margin-left: auto; background: none; border: none; color: #c62828; cursor: pointer; font-size: 1rem; }
-
-/* ── Idle screen ────────────────────────────────── */
-.sc-idle {
-  background: #fff; border-radius: 20px;
-  border: 1px solid #eef4ef;
-  padding: 2.5rem 1.5rem;
-  text-align: center;
-  box-shadow: 0 2px 12px rgba(26,35,50,.06);
+.sc-progress--info    { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.sc-progress--success { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+.sc-progress--warn    { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+.sc-progress--error   { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.sc-error {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .8rem 1rem; border-radius: 12px;
+  background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+  font-size: .875rem;
 }
 
-.sc-idle-icon {
+/* ── Start screen ── */
+.sc-start {
+  background: #fff; border-radius: 20px;
+  border: 1px solid #e5e7eb; padding: 2.5rem 1.75rem;
+  text-align: center; box-shadow: 0 2px 16px rgba(0,0,0,.06);
+}
+.sc-start-icon {
   width: 80px; height: 80px;
-  background: linear-gradient(135deg, #f0f7f0, #e8f5e9);
+  background: linear-gradient(135deg,#f0fdf4,#dcfce7);
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   margin: 0 auto 1.25rem;
-  font-size: 2rem; color: #4a7c59;
-  border: 2px solid #c8e6c9;
+  font-size: 2.2rem; color: #4a7c59;
+  border: 2px solid #bbf7d0;
 }
-
-.sc-idle h3 { font-size: 1.3rem; font-weight: 700; color: #1a2332; margin-bottom: .625rem; }
-.sc-idle p  { color: #6b7c93; font-size: .9rem; line-height: 1.6; max-width: 380px; margin: 0 auto 1.5rem; }
-
-/* How it works */
-.sc-hiw {
-  display: flex; align-items: center; justify-content: center;
-  gap: .75rem; margin-top: 1.75rem; flex-wrap: wrap;
-}
-.sc-hiw-step {
-  display: flex; flex-direction: column; align-items: center; gap: .4rem;
-  font-size: .8rem; color: #6b7c93;
-}
-.sc-hiw-step .sc-hiw-num {
-  width: 28px; height: 28px; border-radius: 50%;
+.sc-start h2 { font-size: 1.35rem; font-weight: 800; color: #111827; margin-bottom: .5rem; }
+.sc-start > p { color: #6b7280; font-size: .9rem; line-height: 1.6; max-width: 360px; margin: 0 auto 1.75rem; }
+.sc-hiw { display: flex; align-items: flex-start; justify-content: center; gap: 1.5rem; margin-bottom: 2rem; flex-wrap: wrap; }
+.sc-hiw-step { display: flex; flex-direction: column; align-items: center; gap: .4rem; font-size: .78rem; color: #6b7280; }
+.sc-hiw-num {
+  width: 30px; height: 30px; border-radius: 50%;
   background: #4a7c59; color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-size: .8rem; font-weight: 700;
 }
-.sc-hiw-step i { font-size: 1.2rem; color: #4a7c59; }
-.sc-hiw-arrow  { color: #c8e6c9; font-size: 1.2rem; font-weight: 700; }
+.sc-hiw-step i { font-size: 1.25rem; color: #4a7c59; }
 
-/* ── Camera viewport ────────────────────────────── */
+/* ════════════════════════════════════════════════
+   CAMERA VIEWPORT — THE CORRECT APPROACH
+   
+   The viewport is position:relative with a fixed
+   aspect ratio. The <video> is position:absolute
+   inset:0 so it fills the container completely.
+   All overlays are also position:absolute inset:0.
+   Nothing has a background colour that would hide
+   the video. This is the only correct approach.
+   ════════════════════════════════════════════════ */
+.sc-viewport-wrap { display: flex; flex-direction: column; gap: .75rem; }
+
 .sc-viewport {
   position: relative;
   width: 100%;
-  background: #000;
+  height: 220px;       /* compact — just enough to see the label */
   border-radius: 16px;
   overflow: hidden;
-  aspect-ratio: 4/3;
-  border: 2px solid #4a7c59;
+  background: #1a1a1a;
+  border: 2.5px solid #4a7c59;
+  box-shadow: 0 0 0 3px rgba(74,124,89,.2), 0 8px 24px rgba(0,0,0,.3);
 }
 
+/* VIDEO: absolute fill — the live feed */
 .sc-video {
+  position: absolute;
+  top: 0; left: 0;
   width: 100%; height: 100%;
-  object-fit: cover; display: block;
+  object-fit: cover;
+  display: block;
+  /* z-index 0 — sits at the bottom of the stacking context */
+  z-index: 0;
 }
 
-/* Overlay */
-.sc-overlay {
-  position: absolute; inset: 0;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
+/* LIVE badge — sits above video, no background that blocks feed */
+.sc-live-badge {
+  position: absolute;
+  top: 10px; right: 10px;
+  z-index: 10;
+  background: rgba(0,0,0,.65);
+  color: #fff;
+  font-size: .65rem; font-weight: 800;
+  padding: 3px 8px 3px 6px;
+  border-radius: 20px;
+  display: flex; align-items: center; gap: 5px;
+  letter-spacing: .06em; text-transform: uppercase;
+  border: 1px solid rgba(255,255,255,.15);
+}
+.sc-live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #ef4444; flex-shrink: 0;
+  animation: liveBlink 1s ease-in-out infinite;
+}
+@keyframes liveBlink {
+  0%,100% { opacity: 1; }
+  50%      { opacity: .15; }
+}
+
+/* ── BARCODE viewfinder overlay ──
+   position:absolute inset:0 — sits above video (z-index 1)
+   background: NONE — video must show through
+   Only the corner brackets and scan line are visible
+*/
+.sc-barcode-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* NO background */
+}
+
+/* The target box — just a transparent window defined by corners */
+.sc-barcode-target {
+  position: relative;
+  width: 72%;
+  height: 100px;
+  /* NO background, NO border — only corners will be visible */
+}
+
+/* Label above target */
+.sc-target-label {
+  position: absolute;
+  top: -24px; left: 50%;
+  transform: translateX(-50%);
+  font-size: .65rem; font-weight: 800;
+  color: #4ade80;
+  letter-spacing: .12em; text-transform: uppercase;
+  text-shadow: 0 0 8px rgba(0,0,0,1), 0 0 4px rgba(0,0,0,1);
+  white-space: nowrap;
+}
+
+/* Corner brackets — the ONLY visual for the target area */
+.sc-corner {
+  position: absolute;
+  width: 22px; height: 22px;
+  border-color: #4ade80; border-style: solid;
+  /* Glow so they're visible on bright backgrounds too */
+  filter: drop-shadow(0 0 3px #4ade80) drop-shadow(0 0 6px rgba(74,222,128,.5));
+}
+.sc-corner.tl { top: 0;    left: 0;  border-width: 3px 0 0 3px; border-top-left-radius:     4px; }
+.sc-corner.tr { top: 0;    right: 0; border-width: 3px 3px 0 0; border-top-right-radius:    4px; }
+.sc-corner.bl { bottom: 0; left: 0;  border-width: 0 0 3px 3px; border-bottom-left-radius:  4px; }
+.sc-corner.br { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-bottom-right-radius: 4px; }
+
+/* Animated laser scan line inside barcode target */
+.sc-scanline {
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #4ade80 30%, #a3e635 50%, #4ade80 70%, transparent);
+  box-shadow: 0 0 6px 1px rgba(74,222,128,.7);
+  animation: laserScan 2s ease-in-out infinite;
+}
+@keyframes laserScan {
+  0%   { top: 2px;           opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: calc(100% - 4px); opacity: 0; }
+}
+
+/* Hint pill at bottom of viewport */
+.sc-viewport-hint {
+  position: absolute;
+  bottom: 12px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: rgba(0,0,0,.72);
+  color: #fff; font-size: .74rem; font-weight: 500;
+  padding: 5px 14px; border-radius: 20px;
+  white-space: nowrap;
+  border: 1px solid rgba(255,255,255,.1);
+  text-shadow: 0 1px 2px rgba(0,0,0,.8);
+}
+
+/* ════════════════════════════════════════════════════
+   OCR STRIP VIEWPORT
+   The viewport IS the scan box — no wasted space.
+   Height matches exactly 1–2 lines of date text.
+   Video fills it, green border shows the scan area.
+   ════════════════════════════════════════════════════ */
+.sc-ocr-viewport {
+  position: relative;
+  width: 100%;
+  height: 48px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #111;
+  border: 2.5px solid #4ade80;
+  box-shadow:
+    0 0 0 3px rgba(74,222,128,.2),
+    0 0 16px rgba(74,222,128,.15),
+    0 4px 16px rgba(0,0,0,.4);
+  animation: stripPulse 2s ease-in-out infinite;
+}
+@keyframes stripPulse {
+  0%,100% { border-color: #4ade80; box-shadow: 0 0 0 3px rgba(74,222,128,.2), 0 0 16px rgba(74,222,128,.15), 0 4px 16px rgba(0,0,0,.4); }
+  50%     { border-color: #fff;    box-shadow: 0 0 0 3px rgba(255,255,255,.15), 0 0 20px rgba(255,255,255,.1), 0 4px 16px rgba(0,0,0,.4); }
+}
+
+/* Video fills the strip — object-fit:cover centres on the date */
+.sc-ocr-viewport .sc-video {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  z-index: 0;
+}
+
+/* Green corner accents inside the strip border */
+.sc-ocr-strip-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   pointer-events: none;
 }
 
-.sc-overlay-hint {
-  position: absolute; bottom: 14px;
-  background: rgba(0,0,0,.65);
-  color: #fff; font-size: .8rem;
-  padding: 6px 14px; border-radius: 20px;
-  text-align: center;
-}
-
-/* Barcode box with corners */
-.sc-barcode-box {
-  position: relative;
-  width: 65%; max-width: 280px;
-  aspect-ratio: 2/1;
-}
-
-.sc-corner {
+/* Reuse sc-ocr-corner but make them glow green on the strip */
+.sc-ocr-viewport .sc-ocr-corner {
   position: absolute;
-  width: 20px; height: 20px;
+  width: 14px; height: 14px;
   border-color: #4ade80; border-style: solid;
+  filter: drop-shadow(0 0 4px #4ade80);
 }
-.sc-corner.tl { top:0; left:0;  border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
-.sc-corner.tr { top:0; right:0; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
-.sc-corner.bl { bottom:0; left:0;  border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
-.sc-corner.br { bottom:0; right:0; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+.sc-ocr-viewport .sc-ocr-corner.tl { top: 3px;    left: 3px;  border-width: 2px 0 0 2px; border-top-left-radius:     3px; }
+.sc-ocr-viewport .sc-ocr-corner.tr { top: 3px;    right: 3px; border-width: 2px 2px 0 0; border-top-right-radius:    3px; }
+.sc-ocr-viewport .sc-ocr-corner.bl { bottom: 3px; left: 3px;  border-width: 0 0 2px 2px; border-bottom-left-radius:  3px; }
+.sc-ocr-viewport .sc-ocr-corner.br { bottom: 3px; right: 3px; border-width: 0 2px 2px 0; border-bottom-right-radius: 3px; }
 
-.sc-scanline {
+/* Reposition LIVE badge for the short strip */
+.sc-ocr-viewport .sc-live-badge {
   position: absolute;
-  left: 0; right: 0; top: 50%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #4ade80, transparent);
-  animation: scanline 2s linear infinite;
-}
-@keyframes scanline {
-  0%   { transform: translateY(-16px); opacity: 1; }
-  100% { transform: translateY(16px);  opacity: 1; }
-}
-
-/* OCR overlay */
-.sc-overlay--ocr { justify-content: center; }
-
-.sc-ocr-box {
-  width: 75%; max-width: 320px;
-  height: 80px;
-  border: 2px dashed #60a5fa;
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(96,165,250,.08);
-}
-.sc-ocr-box span {
-  color: #93c5fd; font-size: .8rem; font-weight: 600;
-  background: rgba(0,0,0,.5); padding: 3px 10px; border-radius: 12px;
+  top: 50%; right: 8px;
+  transform: translateY(-50%);
+  z-index: 10;
+  background: rgba(0,0,0,.7);
+  color: #fff;
+  font-size: .6rem; font-weight: 800;
+  padding: 2px 7px 2px 5px;
+  border-radius: 20px;
+  display: flex; align-items: center; gap: 4px;
+  letter-spacing: .06em; text-transform: uppercase;
+  border: 1px solid rgba(255,255,255,.15);
 }
 
-/* ── Camera step ────────────────────────────────── */
-.sc-camera-step { display: flex; flex-direction: column; gap: .875rem; }
+/* Remove old OCR overlay styles (no longer used) */
+.sc-ocr-overlay, .sc-ocr-target,
+.sc-ocr-target-label { display: none; }
 
-/* ── OCR step ───────────────────────────────────── */
-.sc-ocr-step { display: flex; flex-direction: column; gap: .875rem; }
-
-/* Product preview card */
+/* ── Product card ── */
+.sc-ocr-step     { display: flex; flex-direction: column; gap: .875rem; }
 .sc-product-card {
   display: flex; align-items: center; gap: 1rem;
-  padding: 1rem; background: #f7f9f5;
-  border-radius: 14px; border: 1px solid #e2ebe4;
+  padding: 1rem; background: #f9fafb;
+  border-radius: 14px; border: 1px solid #e5e7eb;
 }
-.sc-product-img { width: 56px; height: 56px; object-fit: contain; border-radius: 10px; background: #fff; flex-shrink: 0; }
+.sc-product-img   { width: 56px; height: 56px; object-fit: contain; border-radius: 10px; background: #fff; flex-shrink: 0; border: 1px solid #f3f4f6; }
 .sc-product-emoji { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; font-size: 2rem; background: #fff; border-radius: 10px; flex-shrink: 0; }
 .sc-product-details { flex: 1; min-width: 0; }
-.sc-product-details h4 { font-size: .95rem; font-weight: 700; color: #1a2332; margin-bottom: .2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sc-product-details p  { font-size: .78rem; color: #6b7c93; margin-bottom: .3rem; }
-.sc-product-details code { font-size: .72rem; background: #e2ebe4; padding: 2px 7px; border-radius: 4px; color: #4a7c59; }
-.sc-not-found { color: #e65100 !important; }
+.sc-product-details h4 { font-size: .95rem; font-weight: 700; color: #111827; margin-bottom: .2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-product-details p  { font-size: .78rem; color: #6b7280; margin-bottom: .3rem; }
+.sc-product-details code { font-size: .7rem; background: #f0fdf4; padding: 2px 7px; border-radius: 4px; color: #4a7c59; border: 1px solid #bbf7d0; }
+.sc-not-found { color: #ea580c !important; }
 
 /* OCR tip */
 .sc-ocr-tip {
   display: flex; gap: .875rem; align-items: flex-start;
-  padding: .875rem 1rem; background: #fff8e1;
-  border-radius: 12px; border: 1px solid #ffe082;
-  font-size: .875rem;
+  padding: .875rem 1rem; background: #fffbeb;
+  border-radius: 12px; border: 1px solid #fde68a;
 }
-.sc-ocr-tip i { color: #f59e0b; font-size: 1.1rem; flex-shrink: 0; margin-top: .15rem; }
-.sc-ocr-tip strong { display: block; color: #92400e; margin-bottom: .25rem; }
-.sc-ocr-tip p { color: #78350f; margin: 0; line-height: 1.5; }
+.sc-ocr-tip i      { color: #d97706; font-size: 1.1rem; flex-shrink: 0; margin-top: .1rem; }
+.sc-ocr-tip strong { display: block; color: #92400e; margin-bottom: .25rem; font-size: .875rem; }
+.sc-ocr-tip p      { color: #78350f; margin: 0; line-height: 1.5; font-size: .82rem; }
 
+/* Placeholder */
 .sc-ocr-placeholder {
-  background: #f7f9f5; border-radius: 14px;
-  border: 2px dashed #c8e6c9;
-  padding: 2.5rem; text-align: center; color: #9e9e9e;
+  background: #f9fafb; border-radius: 14px;
+  border: 2px dashed #d1fae5;
+  padding: 2.5rem 1.5rem; text-align: center; color: #9ca3af;
 }
-.sc-ocr-placeholder i { font-size: 2.5rem; color: #c8e6c9; display: block; margin-bottom: .75rem; }
+.sc-ocr-placeholder i { font-size: 2.5rem; color: #a7f3d0; display: block; margin-bottom: .75rem; }
 .sc-ocr-placeholder p { font-size: .875rem; margin: 0; }
-
 .sc-ocr-actions { display: flex; flex-direction: column; gap: .625rem; }
 
-/* ── Confirm step ───────────────────────────────── */
+/* ── Confirm step ── */
 .sc-confirm-step {
   background: #fff; border-radius: 20px;
-  border: 1px solid #eef4ef;
-  padding: 1.5rem;
-  box-shadow: 0 2px 12px rgba(26,35,50,.06);
+  border: 1px solid #e5e7eb; padding: 1.5rem;
+  box-shadow: 0 2px 16px rgba(0,0,0,.06);
 }
 .sc-confirm-step h3 {
-  font-size: 1.1rem; font-weight: 700; color: #1a2332;
-  display: flex; align-items: center; gap: .5rem;
-  margin-bottom: 1.25rem;
+  font-size: 1.1rem; font-weight: 700; color: #111827;
+  display: flex; align-items: center; gap: .5rem; margin-bottom: 1.25rem;
 }
 .sc-confirm-step h3 i { color: #4a7c59; }
-
-/* Captured image */
 .sc-captured { margin-bottom: 1rem; }
-.sc-captured-img { width: 100%; max-height: 160px; object-fit: cover; border-radius: 10px; }
+.sc-captured-img { width: 100%; max-height: 160px; object-fit: cover; border-radius: 10px; border: 1px solid #e5e7eb; }
 .sc-ocr-raw {
   display: flex; align-items: flex-start; gap: .5rem;
   margin-top: .5rem; padding: .625rem .875rem;
-  background: #f0f7f0; border-radius: 8px;
-  font-size: .78rem; color: #4a7c59;
+  background: #f0fdf4; border-radius: 8px;
+  font-size: .78rem; color: #4a7c59; border: 1px solid #bbf7d0;
 }
-.sc-ocr-raw i { flex-shrink: 0; margin-top: .1rem; }
-.sc-ocr-raw em { color: #2d5a3d; font-style: normal; }
+.sc-ocr-raw i  { flex-shrink: 0; margin-top: .1rem; }
+.sc-ocr-raw em { color: #166534; font-style: normal; }
 
 /* Form */
-.sc-form {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 1.25rem;
-}
-
+.sc-form { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; }
 .sc-field { display: flex; flex-direction: column; gap: .4rem; }
 .sc-field--full { grid-column: 1 / -1; }
-
 .sc-field label {
-  font-size: .8rem; font-weight: 600; color: #3d4f63;
+  font-size: .8rem; font-weight: 600; color: #374151;
   display: flex; align-items: center; gap: .375rem;
 }
 .sc-field label i { color: #4a7c59; }
-
-.sc-field input,
-.sc-field select {
+.sc-field input, .sc-field select {
   padding: .75rem 1rem;
-  border: 1.5px solid #e2ebe4; border-radius: 11px;
-  font-size: .9rem; color: #1a2332; background: #fafafa;
-  outline: none; transition: all .22s; font-family: inherit;
-  box-sizing: border-box;
+  border: 1.5px solid #e5e7eb; border-radius: 11px;
+  font-size: .9rem; color: #111827; background: #fafafa;
+  outline: none; transition: all .2s; font-family: inherit; box-sizing: border-box;
 }
-.sc-field input:focus,
-.sc-field select:focus { border-color: #4a7c59; background: #fff; box-shadow: 0 0 0 3px rgba(74,124,89,.1); }
-
+.sc-field input:focus, .sc-field select:focus {
+  border-color: #4a7c59; background: #fff; box-shadow: 0 0 0 3px rgba(74,124,89,.12);
+}
 .sc-ocr-badge {
-  margin-left: auto;
-  background: #d1fae5; color: #065f46;
-  font-size: .68rem; padding: 2px 8px; border-radius: 999px;
+  margin-left: auto; background: #dcfce7; color: #166534;
+  font-size: .67rem; padding: 2px 8px; border-radius: 999px;
   font-weight: 700; display: inline-flex; align-items: center; gap: 3px;
 }
 
-.sc-field-hint { font-size: .75rem; color: #e65100; margin: 2px 0 0; }
+/* Expiry input */
+.sc-expiry-input {
+  width: 100%; padding: .85rem 1rem;
+  border: 1.5px solid #e5e7eb; border-radius: 11px;
+  font-size: 1rem; color: #111827; background: #fafafa;
+  outline: none; transition: all .2s; font-family: inherit; box-sizing: border-box;
+}
+.sc-expiry-input:focus { border-color: #4a7c59; background: #fff; box-shadow: 0 0 0 3px rgba(74,124,89,.12); }
+.sc-expiry-input.is-valid   { border-color: #16a34a; background: #f0fdf4; color: #15803d; font-weight: 700; box-shadow: 0 0 0 3px rgba(22,163,74,.1); }
+.sc-expiry-input.is-invalid { border-color: #ef4444; background: #fef2f2; box-shadow: 0 0 0 3px rgba(239,68,68,.08); }
 
-/* ── Buttons ────────────────────────────────────── */
+.sc-expiry-confirm {
+  display: flex; align-items: center; gap: .5rem;
+  margin-top: .4rem; padding: .55rem 1rem;
+  background: #f0fdf4; border-radius: 9px;
+  font-size: .83rem; color: #166534; border: 1px solid #bbf7d0;
+}
+.sc-expiry-confirm i      { color: #16a34a; flex-shrink: 0; }
+.sc-expiry-confirm strong  { color: #15803d; font-size: .9rem; }
+.sc-expiry-confirm code   { margin-left: auto; font-size: .72rem; color: #16a34a; background: #dcfce7; padding: 2px 7px; border-radius: 4px; font-family: monospace; }
+
+.sc-expiry-hint           { font-size: .75rem; margin: .3rem 0 0 .2rem; color: #6b7280; font-style: italic; }
+.sc-expiry-hint--error    { color: #ef4444; font-style: normal; font-weight: 500; }
+
+/* ── Buttons ── */
 .sc-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
   padding: .85rem 1.5rem; border-radius: 12px;
   font-size: .9rem; font-weight: 700; font-family: inherit;
-  cursor: pointer; transition: all .25s cubic-bezier(0.34,1.56,0.64,1);
-  border: none; width: 100%;
+  cursor: pointer; transition: all .22s; border: none; width: 100%;
 }
-
 .sc-btn--primary {
-  background: linear-gradient(135deg, #4a7c59, #2d5a3d);
+  background: linear-gradient(135deg,#4a7c59,#2d5a3d);
   color: #fff; box-shadow: 0 4px 14px rgba(45,90,61,.28);
 }
 .sc-btn--primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(45,90,61,.35); }
-.sc-btn--primary:disabled { background: #bdbdbd; cursor: not-allowed; transform: none; box-shadow: none; }
-
-.sc-btn--ghost {
-  background: transparent; color: #6b7c93;
-  border: 1.5px solid #e2ebe4;
-}
-.sc-btn--ghost:hover { background: #f7f9f5; border-color: #c8e6c9; color: #2d5a3d; }
-
+.sc-btn--primary:disabled { background: #d1d5db; color: #9ca3af; cursor: not-allowed; }
+.sc-btn--ghost { background: transparent; color: #6b7280; border: 1.5px solid #e5e7eb; }
+.sc-btn--ghost:hover { background: #f9fafb; border-color: #bbf7d0; color: #2d5a3d; }
 .sc-btn--capture {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  color: #fff; box-shadow: 0 4px 14px rgba(220,38,38,.3);
-  animation: pulseCapture 1.5s ease infinite;
+  background: linear-gradient(135deg,#dc2626,#b91c1c);
+  color: #fff; box-shadow: 0 4px 14px rgba(185,28,28,.32);
+  animation: capturePulse 1.8s ease-in-out infinite;
 }
-@keyframes pulseCapture {
-  0%,100% { box-shadow: 0 4px 14px rgba(220,38,38,.3); }
-  50%      { box-shadow: 0 4px 22px rgba(220,38,38,.5); }
+@keyframes capturePulse {
+  0%,100% { box-shadow: 0 4px 14px rgba(185,28,28,.32); }
+  50%     { box-shadow: 0 4px 28px rgba(185,28,28,.55); }
 }
 .sc-btn--capture:hover { transform: translateY(-2px); }
-
 .sc-btn--lg { padding: 1rem 2rem; font-size: 1rem; }
-
-.sc-confirm-actions {
-  display: flex; gap: .75rem;
-}
+.sc-confirm-actions { display: flex; gap: .75rem; }
 .sc-confirm-actions .sc-btn { flex: 1; }
+.sc-mt { margin-top: .25rem; }
 
-/* ── Responsive ─────────────────────────────────── */
+/* ── Responsive ── */
 @media (max-width: 480px) {
-  .sc-form { grid-template-columns: 1fr; }
+  .sc-form            { grid-template-columns: 1fr; }
   .sc-confirm-actions { flex-direction: column; }
-  .sc-hiw-arrow { display: none; }
-  .sc-hiw { gap: 1rem; }
-  .si-step { min-width: 60px; }
-  .si-step span { font-size: .65rem; }
-  .sc-confirm-step { padding: 1.125rem; }
-}
-
-/* ── Expiry date smart text input ────────────────── */
-.sc-input-valid {
-  border-color: #4a7c59 !important;
-  background: #f0faf1 !important;
-  color: #1b5e20;
-  font-weight: 600;
-}
-
-.sc-input-invalid {
-  border-color: #ef5350 !important;
-  background: #fff8f8 !important;
-}
-
-.sc-date-parsed {
-  display: flex;
-  align-items: center;
-  gap: .45rem;
-  margin-top: .4rem;
-  padding: .5rem .875rem;
-  background: #e8f5e9;
-  border-radius: 8px;
-  font-size: .82rem;
-  color: #2e7d32;
-  border: 1px solid #a5d6a7;
-  flex-wrap: wrap;
-}
-.sc-date-parsed i { color: #43a047; flex-shrink: 0; }
-.sc-date-parsed strong { color: #1b5e20; }
-.sc-date-iso { color: #66bb6a; font-size: .75rem; margin-left: .25rem; }
-
-.sc-field-hint-soft {
-  font-size: .75rem;
-  color: #9e9e9e;
-  margin: .3rem 0 0 .2rem;
-  font-style: italic;
-}
-
-/* ── Calendar date input in confirm step ─────────── */
-.sc-field input[type="date"] {
-  width: 100%;
-  padding: .75rem 1rem;
-  border: 1.5px solid #e2ebe4;
-  border-radius: 11px;
-  font-size: .95rem;
-  color: #1a2332;
-  background: #fafafa;
-  outline: none;
-  transition: all .22s;
-  font-family: inherit;
-  box-sizing: border-box;
-  cursor: pointer;
-}
-
-.sc-field input[type="date"]:focus {
-  border-color: #4a7c59;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(74,124,89,.12);
-}
-
-/* Green border + bg when OCR filled */
-.sc-field input[type="date"].sc-input-valid {
-  border-color: #4a7c59 !important;
-  background: #f0faf1 !important;
-  color: #1b5e20;
-  font-weight: 600;
-}
-
-/* Parsed date confirmation row */
-.sc-date-parsed {
-  display: flex;
-  align-items: center;
-  gap: .45rem;
-  margin-top: .4rem;
-  padding: .5rem .875rem;
-  background: #e8f5e9;
-  border-radius: 8px;
-  font-size: .82rem;
-  color: #2e7d32;
-  border: 1px solid #a5d6a7;
-}
-.sc-date-parsed i { color: #43a047; }
-.sc-date-parsed strong { color: #1b5e20; }
-
-.sc-field-hint-soft {
-  font-size: .75rem;
-  color: #9e9e9e;
-  margin: .3rem 0 0 .2rem;
-  font-style: italic;
-}
-
-/* Force calendar icon visible on mobile */
-input[type="date"]::-webkit-calendar-picker-indicator {
-  cursor: pointer;
-  opacity: .7;
-  filter: invert(0.3) sepia(1) saturate(3) hue-rotate(100deg);
-}
-input[type="date"]::-webkit-calendar-picker-indicator:hover {
-  opacity: 1;
-}
-
-/* ── Expiry date plain text input ────────────────── */
-.sc-expiry-text {
-  width: 100%;
-  padding: .85rem 1rem;
-  border: 1.5px solid #e2ebe4;
-  border-radius: 11px;
-  font-size: 1rem;
-  color: #1a2332;
-  background: #fafafa;
-  outline: none;
-  transition: all .22s;
-  font-family: inherit;
-  box-sizing: border-box;
-}
-
-.sc-expiry-text:focus {
-  border-color: #4a7c59;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(74,124,89,.12);
-}
-
-/* Green — OCR filled and parsed successfully */
-.sc-expiry-text.valid {
-  border-color: #4a7c59;
-  background: #f0faf1;
-  color: #1b5e20;
-  font-weight: 700;
-  letter-spacing: .02em;
-}
-
-/* Red — user typed something but parser doesn't recognise it yet */
-.sc-expiry-text.invalid {
-  border-color: #ef5350;
-  background: #fff8f8;
-}
-
-/* Parsed date confirmation row shown below the input */
-.sc-date-parsed {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  margin-top: .45rem;
-  padding: .55rem 1rem;
-  background: #e8f5e9;
-  border-radius: 9px;
-  font-size: .83rem;
-  color: #2e7d32;
-  border: 1px solid #a5d6a7;
-}
-.sc-date-parsed i      { color: #43a047; flex-shrink: 0; }
-.sc-date-parsed strong { color: #1b5e20; font-size: .9rem; }
-.sc-date-iso {
-  margin-left: auto;
-  font-size: .72rem;
-  color: #66bb6a;
-  background: #c8e6c9;
-  padding: 2px 7px;
-  border-radius: 4px;
-  font-family: monospace;
-}
-
-.sc-field-hint {
-  font-size: .75rem;
-  color: #e53935;
-  margin: .35rem 0 0 .2rem;
-}
-
-.sc-field-hint-soft {
-  font-size: .75rem;
-  color: #9e9e9e;
-  margin: .35rem 0 0 .2rem;
-  font-style: italic;
+  .sc-step            { min-width: 62px; }
+  .sc-step span       { font-size: .63rem; }
+  .sc-confirm-step    { padding: 1.125rem; }
+  .sc-viewport        { height: 180px; }
+  .sc-barcode-target  { width: 82%; height: 80px; }
+  .sc-ocr-viewport    { height: 42px; }
 }
