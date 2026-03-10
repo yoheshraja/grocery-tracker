@@ -242,8 +242,8 @@
 .sc-ocr-viewport {
   position: relative;
   width: 100%;
-  height: 48px;
-  border-radius: 8px;
+  height: 220px;
+  border-radius: 16px;
   overflow: hidden;
   background: #111;
   border: 2.5px solid #4ade80;
@@ -453,4 +453,118 @@
   .sc-viewport        { height: 180px; }
   .sc-barcode-target  { width: 82%; height: 80px; }
   .sc-ocr-viewport    { height: 42px; }
+}
+
+/* ════════════════════════════════════════════════════════
+   CROP UI
+   ════════════════════════════════════════════════════════ */
+
+/* Blue tip variant for crop step */
+.sc-ocr-tip--blue {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.sc-ocr-tip--blue i      { color: #2563eb; }
+.sc-ocr-tip--blue strong { color: #1e3a8a; }
+.sc-ocr-tip--blue p      { color: #1d4ed8; }
+
+/* Wrapper — relative so handles can be absolutely positioned */
+.sc-crop-wrap {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  user-select: none;
+  touch-action: none;
+  /* Fixed height ratio so image doesn't jump */
+  aspect-ratio: 4 / 3;
+}
+
+/* The captured image fills the wrapper */
+.sc-crop-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* SVG overlay — exact same size as wrapper, absolute on top */
+.sc-crop-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Transparent drag area to move the whole crop box */
+.sc-crop-move {
+  position: absolute;
+  cursor: move;
+  z-index: 3;
+  /* Subtract handle zones so corners/edges take priority */
+}
+
+/* ── Handles — base styles ── */
+.sc-crop-handle {
+  position: absolute;
+  z-index: 5;
+  background: #fff;
+  border: 2.5px solid #4ade80;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 2px 6px rgba(0,0,0,.4);
+  transform: translate(-50%, -50%);
+}
+
+/* Corner handles — square, larger touch target */
+.sc-crop-h-tl,
+.sc-crop-h-tr,
+.sc-crop-h-bl,
+.sc-crop-h-br {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: nwse-resize;
+}
+.sc-crop-h-tr,
+.sc-crop-h-bl { cursor: nesw-resize; }
+
+/* Corner accent colour — green corner brackets */
+.sc-crop-h-tl { background: #4ade80; border-color: #fff; }
+.sc-crop-h-tr { background: #4ade80; border-color: #fff; }
+.sc-crop-h-bl { background: #4ade80; border-color: #fff; }
+.sc-crop-h-br { background: #4ade80; border-color: #fff; }
+
+/* Edge handles — pill shaped, narrower */
+.sc-crop-h-edge {
+  background: rgba(255,255,255,0.9);
+  border-color: #4ade80;
+  border-radius: 999px;
+}
+.sc-crop-h-t,
+.sc-crop-h-b {
+  width: 36px;
+  height: 14px;
+  cursor: ns-resize;
+}
+.sc-crop-h-l,
+.sc-crop-h-r {
+  width: 14px;
+  height: 36px;
+  cursor: ew-resize;
+}
+
+/* Touch: bigger invisible hit area via ::after */
+.sc-crop-handle::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+
+/* OCR viewport now back to normal full size for OCR step camera */
+.sc-ocr-viewport {
+  height: auto !important;
+  border-radius: 16px !important;
 }
