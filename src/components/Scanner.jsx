@@ -179,6 +179,12 @@ const Scanner = ({ onProductScanned }) => {
   const [ocrRunning,    setOcrRunning]   = useState(false);
   const [saving,        setSaving]       = useState(false);
 
+  // ── Crop UI ───────────────────────────────────────────────────────────────
+  const [showCrop,  setShowCrop]  = useState(false);
+  const [cropBox,   setCropBox]   = useState({ x: 0.05, y: 0.2, w: 0.9, h: 0.6 });
+  const cropImgRef = useRef(null);
+  const dragState  = useRef(null);
+
   // ── Product ───────────────────────────────────────────────────────────────
   const [productData,   setProductData]  = useState(null);
   const [capturedImg,   setCapturedImg]  = useState(null);
@@ -349,6 +355,7 @@ const Scanner = ({ onProductScanned }) => {
     setProductData(null); setCapturedImg(null); setOcrRawText('');
     setExpiryInput(''); setExpiryISO('');
     setOcrRunning(false); setSaving(false);
+    setShowCrop(false); setCropBox({ x: 0.05, y: 0.2, w: 0.9, h: 0.6 });
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -401,156 +408,127 @@ const Scanner = ({ onProductScanned }) => {
     showMsg('Point camera at the expiry date, then tap Capture.');
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // STEP 2b — CAPTURE + PREPROCESS + OCR + AUTO-FILL
-  //
-  // FULL PIPELINE:
-  //   1. Capture video frame to canvas
-  //   2. Build 6 preprocessed image variants
-  //   3. For each variant, run Tesseract with PSM 7 → 6 → 11
-  //      a. Try bounding-box word-level search (keyword proximity)
-  //      b. Fallback to full-text extraction if bounding-box fails
-  //   4. Stop as soon as a valid future date is found
-  //   5. Auto-fill the expiry text input field
-  // ─────────────────────────────────────────────────────────────────────────
-  const captureAndReadExpiry = async () => {
+  // ── STEP 2b: Capture full frame → show crop UI ───────────────────────────
+  const captureFrame = () => {
     if (!videoRef.current || !canvasRef.current) return;
-    setOcrRunning(true);
-    showMsg('Capturing…');
-
-    const v   = videoRef.current;
-    const c   = canvasRef.current;
-    const box = ocrTargetRef.current;
-
-    // ── 1. Video stream resolution ─────────────────────────────────────────
+    const v  = videoRef.current;
+    const c  = canvasRef.current;
     const vw = v.videoWidth  || 1280;
     const vh = v.videoHeight || 720;
-
-    // ── 2. Crop exactly what the OCR strip shows — using real DOM positions ──
-    // The video stream (e.g. 1280×720) is scaled by object-fit:cover to fill
-    // the 48px tall strip. We must map the strip's screen position back to
-    // video pixel coordinates — otherwise we crop the wrong region.
-    //
-    // Strategy: getBoundingClientRect() on both the <video> element and the
-    // strip overlay gives real screen pixels → divide to get fractions →
-    // multiply by video stream resolution to get exact crop pixels.
-
-    let cropX = 0, cropY = 0, cropW = vw, cropH = vh; // safe fallback
-
-    const stripEl = ocrTargetRef.current; // sc-ocr-strip-overlay (inset:0 = same rect as viewport)
-    if (stripEl) {
-      const vRect = v.getBoundingClientRect();   // <video> element on screen
-      const sRect = stripEl.getBoundingClientRect(); // OCR strip on screen
-
-      // Account for object-fit:cover: video may be pillarboxed or letterboxed
-      const elAspect  = vRect.width / vRect.height;
-      const vidAspect = vw / vh;
-      let renderW, renderH, offX, offY;
-
-      if (vidAspect > elAspect) {
-        // Video wider than element → letterboxed top/bottom
-        renderW = vRect.width;
-        renderH = vRect.width / vidAspect;
-        offX = 0;
-        offY = (vRect.height - renderH) / 2;
-      } else {
-        // Video taller than element → pillarboxed left/right
-        renderH = vRect.height;
-        renderW = vRect.height * vidAspect;
-        offY = 0;
-        offX = (vRect.width - renderW) / 2;
-      }
-
-      // Strip position relative to the rendered video area (0–1 fractions)
-      const fx = (sRect.left  - vRect.left  - offX) / renderW;
-      const fy = (sRect.top   - vRect.top   - offY) / renderH;
-      const fw =  sRect.width  / renderW;
-      const fh =  sRect.height / renderH;
-
-      // Small horizontal padding so edge characters aren't clipped
-      // No vertical padding — the strip IS the scan line, every pixel counts
-      const padX = 0.03;
-
-      cropX = Math.max(0,        Math.floor(vw * (fx - padX)));
-      cropY = Math.max(0,        Math.floor(vh *  fy));
-      cropW = Math.min(vw - cropX, Math.ceil(vw * (fw + padX * 2)));
-      cropH = Math.min(vh - cropY, Math.ceil(vh *  fh));
-    }
-
-    // ── 3. Draw cropped region — 2× scale (enough for OCR, 44% fewer pixels than 3×) ──
-    const SCALE = 2;
-    c.width  = cropW * SCALE;
-    c.height = cropH * SCALE;
+    c.width  = vw * 2;
+    c.height = vh * 2;
     const ctx = c.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
-
-    setCapturedImg(c.toDataURL('image/jpeg', 0.88));
+    ctx.drawImage(v, 0, 0, vw, vh, 0, 0, c.width, c.height);
+    setCapturedImg(c.toDataURL('image/jpeg', 0.92));
     stopCamera();
+    setCropBox({ x: 0.05, y: 0.2, w: 0.9, h: 0.6 });
+    setShowCrop(true);
+    showMsg('Drag the handles to surround the expiry date, then tap Read Date.');
+  };
 
-    // ── 4. OCR — max 3 attempts, stop immediately on success ──────────────
-    // Attempt 1: greyscale+contrast, PSM 6  (covers ~90% of labels)
-    // Attempt 2: binary threshold,   PSM 6  (ink stamps, crisp text)
-    // Attempt 3: inverted threshold,  PSM 6  (white text on dark bg)
-    // Each attempt = 1 Tesseract call. Old code was 18. Target: done in 1.
-    //
-    // PSM 6 (uniform block) beats PSM 7 (single line) for date+keyword combos
-    // like "Exp. Date : 4 MAR 2030" because it reads the colon+text correctly.
+  // ── Crop drag logic ───────────────────────────────────────────────────────
+  const onCropPointerDown = (e, handle) => {
+    e.preventDefault();
+    const cx0 = e.touches ? e.touches[0].clientX : e.clientX;
+    const cy0 = e.touches ? e.touches[0].clientY : e.clientY;
+    dragState.current = { handle, startX: cx0, startY: cy0, startBox: { ...cropBox } };
 
+    const onMove = (ev) => {
+      if (!dragState.current) return;
+      const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const img = cropImgRef.current;
+      if (!img) return;
+      const rect = img.getBoundingClientRect();
+      const dx = (cx - dragState.current.startX) / rect.width;
+      const dy = (cy - dragState.current.startY) / rect.height;
+      const b  = dragState.current.startBox;
+      let { x, y, w, h } = b;
+      const MIN = 0.08;
+      switch (dragState.current.handle) {
+        case 'tl': x = Math.min(b.x+dx, b.x+b.w-MIN); y = Math.min(b.y+dy, b.y+b.h-MIN); w = b.w-(x-b.x); h = b.h-(y-b.y); break;
+        case 'tr': w = Math.max(b.w+dx, MIN); y = Math.min(b.y+dy, b.y+b.h-MIN); h = b.h-(y-b.y); break;
+        case 'bl': x = Math.min(b.x+dx, b.x+b.w-MIN); w = b.w-(x-b.x); h = Math.max(b.h+dy, MIN); break;
+        case 'br': w = Math.max(b.w+dx, MIN); h = Math.max(b.h+dy, MIN); break;
+        case 't':  y = Math.min(b.y+dy, b.y+b.h-MIN); h = b.h-(y-b.y); break;
+        case 'b':  h = Math.max(b.h+dy, MIN); break;
+        case 'l':  x = Math.min(b.x+dx, b.x+b.w-MIN); w = b.w-(x-b.x); break;
+        case 'r':  w = Math.max(b.w+dx, MIN); break;
+        case 'move': x = b.x+dx; y = b.y+dy; break;
+        default: break;
+      }
+      x = Math.max(0, Math.min(x, 1-MIN));
+      y = Math.max(0, Math.min(y, 1-MIN));
+      w = Math.max(MIN, Math.min(w, 1-x));
+      h = Math.max(MIN, Math.min(h, 1-y));
+      setCropBox({ x, y, w, h });
+    };
+    const onUp = () => {
+      dragState.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup',   onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend',  onUp);
+    };
+    window.addEventListener('mousemove', onMove, { passive: false });
+    window.addEventListener('mouseup',   onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend',  onUp);
+  };
+
+  // ── STEP 2c: OCR on cropped region ───────────────────────────────────────
+  const runOCROnCrop = async () => {
+    if (!capturedImg || !canvasRef.current) return;
+    setOcrRunning(true);
+    setShowCrop(false);
     showMsg('Reading date…');
 
-    const ATTEMPTS = [
-      { type: 'grey',   label: 'Enhancing…'  },
-      { type: 'thresh', label: 'Retrying…'   },
-      { type: 'inv',    label: 'Retrying…'   },
-    ];
+    const img = new Image();
+    img.src = capturedImg;
+    await new Promise(r => { img.onload = r; });
 
+    const c    = canvasRef.current;
+    const cropX = Math.floor(img.width  * cropBox.x);
+    const cropY = Math.floor(img.height * cropBox.y);
+    const cropW = Math.floor(img.width  * cropBox.w);
+    const cropH = Math.floor(img.height * cropBox.h);
+    c.width = cropW; c.height = cropH;
+    c.getContext('2d').drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    setCapturedImg(c.toDataURL('image/jpeg', 0.92));
+
+    const ATTEMPTS = [
+      { type: 'grey' }, { type: 'thresh' }, { type: 'inv' },
+    ];
     const TESS_CONFIG = {
       tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-.: ',
       preserve_interword_spaces: '1',
-      tessedit_pageseg_mode: '7',  // PSM 7 = single text line — correct for the 48px strip
+      tessedit_pageseg_mode: '6',
     };
-
-    let ocrResult = null;
-    let bestText  = '';
-
-    for (const attempt of ATTEMPTS) {
-      showMsg(attempt.label);
+    let ocrResult = null, bestText = '';
+    for (const { type } of ATTEMPTS) {
+      showMsg('Enhancing…');
       try {
-        const img = makeVariant(c, attempt.type);
-        const ocr = await Tesseract.recognize(img, 'eng', TESS_CONFIG);
+        const variant = makeVariant(c, type);
+        const ocr = await Tesseract.recognize(variant, 'eng', TESS_CONFIG);
         const { text, words } = ocr.data;
         if (text.trim().length > bestText.length) bestText = text.trim();
-
-        // Try bounding-box keyword search first (most accurate)
-        if (words?.length > 0) {
-          const r = extractExpiryFromWords(words);
-          if (r) { ocrResult = r; break; }
-        }
-        // Fallback: full-text regex search
+        if (words?.length) { const r = extractExpiryFromWords(words); if (r) { ocrResult = r; break; } }
         const r = extractExpiryDate(text);
         if (r) { ocrResult = r; break; }
-
-      } catch (e) {
-        console.warn(`OCR attempt ${attempt.type}:`, e.message);
-      }
+      } catch(e) { console.warn('OCR', type, e.message); }
     }
-
     setOcrRawText(bestText);
-
-    // ── 5. AUTO-FILL expiry date field ────────────────────────────────────
     if (ocrResult) {
-      setExpiryFromOCR(ocrResult);  // fills input + sets ISO for save button
+      setExpiryFromOCR(ocrResult);
       showMsg(`✅ Expiry date: ${ocrResult.display}`, 'success');
     } else {
-      setExpiryInput('');
-      setExpiryISO('');
+      setExpiryInput(''); setExpiryISO('');
       showMsg('⚠️ Could not read date — please type it below.', 'warn');
     }
-
     setOcrRunning(false);
-    setStep(3);  // moves to confirm step where filled field is visible
+    setStep(3);
   };
 
   const skipToConfirm = () => {
@@ -695,72 +673,133 @@ const Scanner = ({ onProductScanned }) => {
                 </div>
               )}
 
-              {/* Instruction */}
-              <div className="sc-ocr-tip">
-                <i className="fas fa-lightbulb"/>
-                <div>
-                  <strong>Now scan the expiry date</strong>
-                  <p>Point the green strip directly at the expiry date line, then tap Capture.</p>
-                </div>
-              </div>
-
-              {/* Camera viewport — OCR strip only, same size as the scan box */}
-              {scanning && (
-                <div className="sc-ocr-viewport">
-
-                  {/* VIDEO fills the strip completely */}
-                  <video ref={videoRef} className="sc-video" playsInline muted autoPlay/>
-                  <canvas ref={canvasRef} style={{ display: 'none' }}/>
-
-                  {/* Green border + corners on the strip edges */}
-                  <div className="sc-ocr-strip-overlay" ref={ocrTargetRef}>
-                    <span className="sc-ocr-corner tl"/>
-                    <span className="sc-ocr-corner tr"/>
-                    <span className="sc-ocr-corner bl"/>
-                    <span className="sc-ocr-corner br"/>
+              {/* ── A: Live camera ── */}
+              {scanning && !showCrop && !ocrRunning && (
+                <>
+                  <div className="sc-ocr-tip">
+                    <i className="fas fa-lightbulb"/>
+                    <div>
+                      <strong>Point at the expiry date label</strong>
+                      <p>Hold steady, then tap Capture. You can crop after.</p>
+                    </div>
                   </div>
-
-                  {/* LIVE badge */}
-                  <div className="sc-live-badge">
-                    <span className="sc-live-dot"/> LIVE
+                  <div className="sc-viewport">
+                    <video ref={videoRef} className="sc-video" playsInline muted autoPlay/>
+                    <canvas ref={canvasRef} style={{ display: 'none' }}/>
+                    <div className="sc-live-badge"><span className="sc-live-dot"/> LIVE</div>
+                    <div className="sc-viewport-hint">Aim at the expiry date</div>
                   </div>
-
-                </div>
+                  <div className="sc-ocr-actions">
+                    <button className="sc-btn sc-btn--capture" onClick={captureFrame}>
+                      <i className="fas fa-camera"/> Capture
+                    </button>
+                    <button className="sc-btn sc-btn--ghost" onClick={skipToConfirm}>
+                      <i className="fas fa-forward"/> Skip — Enter Manually
+                    </button>
+                  </div>
+                </>
               )}
 
-              {/* Placeholder when camera not open */}
-              {!scanning && !ocrRunning && (
+              {/* ── B: Crop UI ── */}
+              {showCrop && !ocrRunning && (
+                <>
+                  <div className="sc-ocr-tip sc-ocr-tip--blue">
+                    <i className="fas fa-crop-alt"/>
+                    <div>
+                      <strong>Crop to the expiry date</strong>
+                      <p>Drag handles to tightly frame the date, then tap Read Date.</p>
+                    </div>
+                  </div>
+
+                  <div className="sc-crop-wrap">
+                    <img ref={cropImgRef} src={capturedImg} alt="Captured" className="sc-crop-img" draggable={false}/>
+
+                    {/* Dark overlay + crop border via SVG */}
+                    <svg className="sc-crop-svg" viewBox="0 0 1 1" preserveAspectRatio="none">
+                      <defs>
+                        <mask id="cropMask">
+                          <rect width="1" height="1" fill="white"/>
+                          <rect x={cropBox.x} y={cropBox.y} width={cropBox.w} height={cropBox.h} fill="black"/>
+                        </mask>
+                      </defs>
+                      <rect width="1" height="1" fill="rgba(0,0,0,0.6)" mask="url(#cropMask)"/>
+                      <rect x={cropBox.x} y={cropBox.y} width={cropBox.w} height={cropBox.h} fill="none" stroke="#4ade80" strokeWidth="0.004"/>
+                      <line x1={cropBox.x+cropBox.w/3}   y1={cropBox.y} x2={cropBox.x+cropBox.w/3}   y2={cropBox.y+cropBox.h} stroke="rgba(255,255,255,0.25)" strokeWidth="0.002"/>
+                      <line x1={cropBox.x+cropBox.w*2/3} y1={cropBox.y} x2={cropBox.x+cropBox.w*2/3} y2={cropBox.y+cropBox.h} stroke="rgba(255,255,255,0.25)" strokeWidth="0.002"/>
+                      <line x1={cropBox.x} y1={cropBox.y+cropBox.h/3}   x2={cropBox.x+cropBox.w} y2={cropBox.y+cropBox.h/3}   stroke="rgba(255,255,255,0.25)" strokeWidth="0.002"/>
+                      <line x1={cropBox.x} y1={cropBox.y+cropBox.h*2/3} x2={cropBox.x+cropBox.w} y2={cropBox.y+cropBox.h*2/3} stroke="rgba(255,255,255,0.25)" strokeWidth="0.002"/>
+                    </svg>
+
+                    {/* Move entire box (inner drag area) */}
+                    <div className="sc-crop-move" style={{ left:`${cropBox.x*100}%`, top:`${cropBox.y*100}%`, width:`${cropBox.w*100}%`, height:`${cropBox.h*100}%` }}
+                      onMouseDown={e=>onCropPointerDown(e,'move')} onTouchStart={e=>onCropPointerDown(e,'move')}/>
+
+                    {/* 4 corner handles */}
+                    {[['tl',0,0],['tr',1,0],['bl',0,1],['br',1,1]].map(([h,fx,fy])=>(
+                      <div key={h} className={`sc-crop-handle sc-crop-h-${h}`}
+                        style={{ left:`${(cropBox.x+cropBox.w*fx)*100}%`, top:`${(cropBox.y+cropBox.h*fy)*100}%` }}
+                        onMouseDown={e=>onCropPointerDown(e,h)} onTouchStart={e=>onCropPointerDown(e,h)}/>
+                    ))}
+
+                    {/* 4 edge handles */}
+                    {[['t',0.5,0],['b',0.5,1],['l',0,0.5],['r',1,0.5]].map(([h,fx,fy])=>(
+                      <div key={h} className={`sc-crop-handle sc-crop-h-edge sc-crop-h-${h}`}
+                        style={{ left:`${(cropBox.x+cropBox.w*fx)*100}%`, top:`${(cropBox.y+cropBox.h*fy)*100}%` }}
+                        onMouseDown={e=>onCropPointerDown(e,h)} onTouchStart={e=>onCropPointerDown(e,h)}/>
+                    ))}
+                  </div>
+
+                  <div className="sc-ocr-actions">
+                    <button className="sc-btn sc-btn--primary" onClick={runOCROnCrop}>
+                      <i className="fas fa-search"/> Read Date
+                    </button>
+                    <button className="sc-btn sc-btn--ghost" onClick={()=>{ setShowCrop(false); startOCRCamera(); }}>
+                      <i className="fas fa-redo"/> Retake
+                    </button>
+                    <button className="sc-btn sc-btn--ghost" onClick={skipToConfirm}>
+                      <i className="fas fa-forward"/> Skip — Enter Manually
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* ── C: OCR running ── */}
+              {ocrRunning && (
                 <div className="sc-ocr-placeholder">
-                  <i className="fas fa-calendar-alt"/>
-                  <p>Tap "Open Camera" to scan the expiry date</p>
+                  <i className="fas fa-spinner fa-spin" style={{color:'#4a7c59',fontSize:'2.5rem'}}/>
+                  <p>Reading expiry date…</p>
                 </div>
               )}
 
-              {/* Action buttons */}
-              <div className="sc-ocr-actions">
-                {!scanning && !ocrRunning && (
-                  <button className="sc-btn sc-btn--primary" onClick={startOCRCamera}>
-                    <i className="fas fa-camera"/> Open Camera
-                  </button>
-                )}
-                {scanning && !ocrRunning && (
-                  <button className="sc-btn sc-btn--capture" onClick={captureAndReadExpiry}>
-                    <i className="fas fa-circle"/> Capture & Read Date
-                  </button>
-                )}
-                {ocrRunning && (
-                  <button className="sc-btn sc-btn--primary" disabled>
-                    <i className="fas fa-spinner fa-spin"/> Reading…
-                  </button>
-                )}
-                <button className="sc-btn sc-btn--ghost" onClick={skipToConfirm}>
-                  <i className="fas fa-forward"/> Skip — Enter Manually
-                </button>
-              </div>
+              {/* ── D: Idle ── */}
+              {!scanning && !showCrop && !ocrRunning && (
+                <>
+                  <div className="sc-ocr-tip">
+                    <i className="fas fa-lightbulb"/>
+                    <div>
+                      <strong>Now scan the expiry date</strong>
+                      <p>Open camera, capture the label, then crop tightly around the date.</p>
+                    </div>
+                  </div>
+                  <div className="sc-ocr-placeholder">
+                    <i className="fas fa-calendar-alt"/>
+                    <p>Tap "Open Camera" to start</p>
+                  </div>
+                  <div className="sc-ocr-actions">
+                    <button className="sc-btn sc-btn--primary" onClick={startOCRCamera}>
+                      <i className="fas fa-camera"/> Open Camera
+                    </button>
+                    <button className="sc-btn sc-btn--ghost" onClick={skipToConfirm}>
+                      <i className="fas fa-forward"/> Skip — Enter Manually
+                    </button>
+                  </div>
+                </>
+              )}
+
             </div>
           )}
 
-          {/* ── STEP 3: Confirm & save ── */}
+                    {/* ── STEP 3: Confirm & save ── */}
           {step === 3 && productData && (
             <div className="sc-confirm-step">
               <h3><i className="fas fa-clipboard-check"/> Review & Confirm</h3>
