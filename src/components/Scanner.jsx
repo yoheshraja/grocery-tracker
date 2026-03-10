@@ -35,7 +35,7 @@ import {
   extractExpiryFromWords,
   parseTypedDate,
   formatISO,
-} from './ocrDateExtractor';
+} from '../utils/Ocrdateextractor';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CATEGORY MAPPING
