@@ -182,8 +182,9 @@ const Scanner = ({ onProductScanned }) => {
   // ── Crop UI ───────────────────────────────────────────────────────────────
   const [showCrop,  setShowCrop]  = useState(false);
   const [cropBox,   setCropBox]   = useState({ x: 0.05, y: 0.2, w: 0.9, h: 0.6 });
-  const cropImgRef = useRef(null);
-  const dragState  = useRef(null);
+  const cropImgRef  = useRef(null);
+  const dragState   = useRef(null);
+  const cropBoxRef  = useRef({ x: 0.05, y: 0.2, w: 0.9, h: 0.6 }); // always mirrors cropBox state
 
   // ── Product ───────────────────────────────────────────────────────────────
   const [productData,   setProductData]  = useState(null);
@@ -355,6 +356,7 @@ const Scanner = ({ onProductScanned }) => {
     setProductData(null); setCapturedImg(null); setOcrRawText('');
     setExpiryInput(''); setExpiryISO('');
     setOcrRunning(false); setSaving(false);
+    cropBoxRef.current = { x: 0.05, y: 0.2, w: 0.9, h: 0.6 };
     setShowCrop(false); setCropBox({ x: 0.05, y: 0.2, w: 0.9, h: 0.6 });
   };
 
@@ -423,6 +425,7 @@ const Scanner = ({ onProductScanned }) => {
     ctx.drawImage(v, 0, 0, vw, vh, 0, 0, c.width, c.height);
     setCapturedImg(c.toDataURL('image/jpeg', 0.92));
     stopCamera();
+    cropBoxRef.current = { x: 0.05, y: 0.2, w: 0.9, h: 0.6 };
     setCropBox({ x: 0.05, y: 0.2, w: 0.9, h: 0.6 });
     setShowCrop(true);
     showMsg('Drag the handles to surround the expiry date, then tap Read Date.');
@@ -463,6 +466,7 @@ const Scanner = ({ onProductScanned }) => {
       y = Math.max(0, Math.min(y, 1-MIN));
       w = Math.max(MIN, Math.min(w, 1-x));
       h = Math.max(MIN, Math.min(h, 1-y));
+      cropBoxRef.current = { x, y, w, h };
       setCropBox({ x, y, w, h });
     };
     const onUp = () => {
@@ -479,54 +483,111 @@ const Scanner = ({ onProductScanned }) => {
   };
 
   // ── STEP 2c: OCR on cropped region ───────────────────────────────────────
+  //
+  // PIPELINE:
+  //   1. Snapshot the cropBox fractions from the ref BEFORE any async work
+  //   2. Load the full captured JPEG into a fresh offscreen Image
+  //      → .naturalWidth / .naturalHeight give true pixel dimensions
+  //   3. Map fractions → pixel coords on the natural image
+  //   4. Draw the crop onto a fresh offscreen canvas (never reuse canvasRef
+  //      here — it may be touched by React or other code between awaits)
+  //   5. Upscale 2× for Tesseract if the crop is small
+  //   6. Try grey → thresh → inv; stop on first date found
+  //   7. Always go to step 3, show what OCR found (or let user type)
+  // ─────────────────────────────────────────────────────────────────────────
   const runOCROnCrop = async () => {
-    if (!capturedImg || !canvasRef.current) return;
+    if (!capturedImg) return;
+
+    // ── Snapshot the box NOW before any state changes ──
+    const box = { ...cropBoxRef.current };
+
     setOcrRunning(true);
     setShowCrop(false);
-    showMsg('Reading date…');
+    showMsg('Cropping…');
 
-    const img = new Image();
-    img.src = capturedImg;
-    await new Promise(r => { img.onload = r; });
+    try {
+      // ── 1. Load full-resolution image from data URL ──────────────────────
+      const fullImg = await new Promise((res, rej) => {
+        const i = new Image();
+        i.onload  = () => res(i);
+        i.onerror = rej;
+        i.src = capturedImg;   // the data URL saved by captureFrame()
+      });
 
-    const c    = canvasRef.current;
-    const cropX = Math.floor(img.width  * cropBox.x);
-    const cropY = Math.floor(img.height * cropBox.y);
-    const cropW = Math.floor(img.width  * cropBox.w);
-    const cropH = Math.floor(img.height * cropBox.h);
-    c.width = cropW; c.height = cropH;
-    c.getContext('2d').drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-    setCapturedImg(c.toDataURL('image/jpeg', 0.92));
+      // ── 2. Compute pixel crop on the NATURAL (full-res) image ────────────
+      const natW = fullImg.naturalWidth  || fullImg.width;
+      const natH = fullImg.naturalHeight || fullImg.height;
 
-    const ATTEMPTS = [
-      { type: 'grey' }, { type: 'thresh' }, { type: 'inv' },
-    ];
-    const TESS_CONFIG = {
-      tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-.: ',
-      preserve_interword_spaces: '1',
-      tessedit_pageseg_mode: '6',
-    };
-    let ocrResult = null, bestText = '';
-    for (const { type } of ATTEMPTS) {
-      showMsg('Enhancing…');
-      try {
-        const variant = makeVariant(c, type);
-        const ocr = await Tesseract.recognize(variant, 'eng', TESS_CONFIG);
-        const { text, words } = ocr.data;
-        if (text.trim().length > bestText.length) bestText = text.trim();
-        if (words?.length) { const r = extractExpiryFromWords(words); if (r) { ocrResult = r; break; } }
-        const r = extractExpiryDate(text);
-        if (r) { ocrResult = r; break; }
-      } catch(e) { console.warn('OCR', type, e.message); }
+      const cropX = Math.round(natW * box.x);
+      const cropY = Math.round(natH * box.y);
+      const cropW = Math.max(20, Math.round(natW * box.w));
+      const cropH = Math.max(20, Math.round(natH * box.h));
+
+      // ── 3. Draw crop onto a fresh canvas — never reuse canvasRef ─────────
+      // If the crop is very short (< 60px) upscale it to at least 120px
+      // so Tesseract gets enough vertical pixels for the font.
+      const MIN_OCR_H = 120;
+      const upscale   = cropH < MIN_OCR_H ? Math.ceil(MIN_OCR_H / cropH) : 1;
+      const outW      = cropW * upscale;
+      const outH      = cropH * upscale;
+
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width  = outW;
+      cropCanvas.height = outH;
+      const ctx = cropCanvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(fullImg, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
+
+      // Save cropped image for display in step 3
+      const croppedDataUrl = cropCanvas.toDataURL('image/jpeg', 0.92);
+      setCapturedImg(croppedDataUrl);
+
+      // ── 4. OCR — PSM 7 for short crops, PSM 6 for taller blocks ─────────
+      const psm = (box.h < 0.12) ? '7' : '6';
+      const TESS_CONFIG = {
+        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-.: ',
+        preserve_interword_spaces: '1',
+        tessedit_pageseg_mode: psm,
+      };
+
+      const ATTEMPTS = ['grey', 'thresh', 'inv'];
+      let ocrResult = null;
+      let bestText  = '';
+
+      for (const type of ATTEMPTS) {
+        showMsg(type === 'grey' ? 'Enhancing…' : 'Retrying…');
+        try {
+          const variant = makeVariant(cropCanvas, type);
+          const ocr = await Tesseract.recognize(variant, 'eng', TESS_CONFIG);
+          const { text, words } = ocr.data;
+          if (text.trim().length > bestText.length) bestText = text.trim();
+          if (words?.length) {
+            const r = extractExpiryFromWords(words);
+            if (r) { ocrResult = r; break; }
+          }
+          const r = extractExpiryDate(text);
+          if (r) { ocrResult = r; break; }
+        } catch (e) {
+          console.warn('OCR', type, e.message);
+        }
+      }
+
+      setOcrRawText(bestText);
+      if (ocrResult) {
+        setExpiryFromOCR(ocrResult);
+        showMsg(`✅ Expiry date: ${ocrResult.display}`, 'success');
+      } else {
+        setExpiryInput('');
+        setExpiryISO('');
+        showMsg('⚠️ Could not read date — please type it below.', 'warn');
+      }
+
+    } catch (err) {
+      console.error('runOCROnCrop error:', err);
+      showMsg('⚠️ Could not process image — please type the date.', 'warn');
     }
-    setOcrRawText(bestText);
-    if (ocrResult) {
-      setExpiryFromOCR(ocrResult);
-      showMsg(`✅ Expiry date: ${ocrResult.display}`, 'success');
-    } else {
-      setExpiryInput(''); setExpiryISO('');
-      showMsg('⚠️ Could not read date — please type it below.', 'warn');
-    }
+
     setOcrRunning(false);
     setStep(3);
   };
