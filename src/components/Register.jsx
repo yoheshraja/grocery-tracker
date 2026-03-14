@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { authService } from '../services/authService';
+import '../styles/globals.css';
 import './Auth.css';
 
 const Register = ({ onRegisterSuccess, onSwitchToLogin }) => { 
