@@ -1,95 +1,78 @@
-import React, { useState, useEffect } from 'react';
-import Dashboard from './components/Dashboard';
-import Login from './components/Login';
-import Register from './components/Register';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
+import { ThemeProvider } from './context/ThemeContext';
 import { authService } from './services/authService';
-import './styles/App.css';
-import './styles/App.css';
-import './components/Auth.css';
-import './components/Dashboard.css';
-function App() {
-  
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [loading, setLoading] = useState(true);
+import './styles/globals.css';
 
-  // Check if user is already logged in
+// Lazy-loaded pages for code splitting
+const HomePage  = lazy(() => import('./components/HomePage'));
+const Login     = lazy(() => import('./components/Login'));
+const Register  = lazy(() => import('./components/Register'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+
+// Page-level spinner
+const PageSpinner = () => (
+  <div style={{
+    minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'var(--bg-page)',
+  }}>
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'1rem', color:'var(--text-muted)' }}>
+      <div className="spinner" style={{ width:42, height:42 }}/>
+      <span style={{ fontSize:'.9rem' }}>Loading…</span>
+    </div>
+  </div>
+);
+
+// ── App ──────────────────────────────────────────────────────────────────────
+const App = () => {
+  // 'home' | 'login' | 'register' | 'dashboard'
+  const [page,  setPage]  = useState('home');
+  const [user,  setUser]  = useState(null);
+  const [ready, setReady] = useState(false);
+
+  // Restore session on load
   useEffect(() => {
-    const savedToken = localStorage.getItem('authToken');
-    const savedUser = localStorage.getItem('user');
-    
-    if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
-      authService.setToken(savedToken);
+    const token = authService.getToken();
+    const saved = localStorage.getItem('ft_user');
+    if (token && saved) {
+      try {
+        setUser(JSON.parse(saved));
+        setPage('dashboard');
+      } catch { /* invalid JSON */ }
     }
-    setLoading(false);
+    setReady(true);
   }, []);
 
-  const handleLogin = (userData, authToken) => {
+  const handleLogin = (userData, token) => {
+    authService.setToken(token);
+    localStorage.setItem('ft_user', JSON.stringify(userData));
     setUser(userData);
-    setToken(authToken);
-    authService.setToken(authToken);
-    localStorage.setItem('authToken', authToken);
-    localStorage.setItem('user', JSON.stringify(userData));
-  };
-
-  const handleRegister = (userData, authToken) => {
-    setUser(userData);
-    setToken(authToken);
-    authService.setToken(authToken);
-    localStorage.setItem('authToken', authToken);
-    localStorage.setItem('user', JSON.stringify(userData));
+    setPage('dashboard');
   };
 
   const handleLogout = () => {
+    authService.logout();
+    localStorage.removeItem('ft_user');
     setUser(null);
-    setToken(null);
-    authService.setToken(null);
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
+    setPage('home');
   };
 
-  const switchToRegister = () => setIsRegistering(true);
-  const switchToLogin = () => setIsRegistering(false);
-
-  if (loading) {
-    return (
-      <div className="loading-screen">
-        <i className="fas fa-spinner fa-spin"></i>
-        <p>Loading...</p>
-      </div>
-    );
-  }
- const handleProductScanned = (product) => {
-    console.log('Scanned product:', product);
-    // Add to your database or state
+  const handleRegisterSuccess = (userData, token) => {
+    // Go to login with pre-filled email after register
+    setPage('login');
   };
 
-  
+  if (!ready) return <PageSpinner />;
+
   return (
-    <div className="App">
-      {user ? (
-        <Dashboard user={user} onLogout={handleLogout} />
-      ) : (
-        <>
-          {isRegistering ? (
-            <Register 
-              onRegister={handleRegister}
-              onSwitchToLogin={switchToLogin}
-            />
-          ) : (
-            <Login 
-              onLogin={handleLogin}
-              onSwitchToRegister={switchToRegister}
-            />
-          )}
-      
-        </>
-      )}
-    </div>
+    <ThemeProvider>
+      <Suspense fallback={<PageSpinner />}>
+        {page === 'home'      && <HomePage  onLogin={() => setPage('login')} onRegister={() => setPage('register')} />}
+        {page === 'login'     && <Login     onLogin={handleLogin} onSwitchToRegister={() => setPage('register')} prefillEmail={localStorage.getItem('lastRegisteredEmail') || ''} />}
+        {page === 'register'  && <Register  onRegisterSuccess={handleRegisterSuccess} onSwitchToLogin={() => setPage('login')} />}
+        {page === 'dashboard' && user && <Dashboard user={user} onLogout={handleLogout} />}
+      </Suspense>
+    </ThemeProvider>
   );
-}
+};
 
 export default App;

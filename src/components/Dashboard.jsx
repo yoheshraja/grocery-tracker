@@ -1,204 +1,188 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import Scanner from './Scanner';
-import ProductList from './ProductList';
-import AddManual from './AddManual';
-import RecentlyAdded from './Recentlyadded';
+import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense, memo } from 'react';
+import Header from './Header';
 import { productService } from '../services/authService';
 import { checkExpiringProducts } from '../services/notifications';
 import './Dashboard.css';
-import '../styles/App.css';
 
-const NAV_ITEMS = [
-  { key: 'scanner',  icon: 'fa-camera',    label: 'Scanner',        badge: null },
-  { key: 'products', icon: 'fa-boxes',     label: 'My Groceries',   badge: 'count' },
-  { key: 'recent',   icon: 'fa-history',   label: 'Recently Added', badge: null },
-  { key: 'manual',   icon: 'fa-pencil-alt',label: 'Add Manually',   badge: null },
-];
+// ── Lazy-loaded tabs (code splitting) ────────────────────────────────────────
+const Scanner    = lazy(() => import('./Scanner'));
+const AddManual  = lazy(() => import('./AddManual'));
+const ProductList = lazy(() => import('./ProductList'));
 
+// ── Stats Card ────────────────────────────────────────────────────────────────
+const StatCard = memo(({ icon, label, value, colorClass, onClick }) => (
+  <button className={`stat-card ${colorClass}`} onClick={onClick}>
+    <div className="stat-icon"><i className={`fas ${icon}`} /></div>
+    <div className="stat-body">
+      <div className="stat-value">{value}</div>
+      <div className="stat-label">{label}</div>
+    </div>
+  </button>
+));
+
+// ── Tab Spinner ───────────────────────────────────────────────────────────────
+const TabSpinner = () => (
+  <div className="tab-loading">
+    <div className="spinner" />
+    <span>Loading…</span>
+  </div>
+);
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
 const Dashboard = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('scanner');
-  const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeTab,    setActiveTab]    = useState('scanner');
+  const [products,     setProducts]     = useState([]);
+  const [notifications,setNotifications]= useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [sidebarOpen,  setSidebarOpen]  = useState(false);
 
+  // ── Stats (memoised, recalculates only when products change) ────────────
   const stats = useMemo(() => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
     const total = products.length;
+    const expired = products.filter(p => new Date(p.expiryDate) < today).length;
     const expiringSoon = products.filter(p => {
       const d = Math.ceil((new Date(p.expiryDate) - today) / 86400000);
       return d >= 0 && d <= 7;
     }).length;
-    const expired = products.filter(p => new Date(p.expiryDate) < today).length;
-    const safe = total - expiringSoon - expired;
-    return { total, expiringSoon, expired, safe };
+    const safe = total - expired - expiringSoon;
+    return { total, expired, expiringSoon, safe: safe > 0 ? safe : 0 };
   }, [products]);
 
-  useEffect(() => { loadAll(); }, []);
-  useEffect(() => { setNotifications(checkExpiringProducts(products)); }, [products]);
+  // ── Notifications (UI-only) ──────────────────────────────────────────────
+  useEffect(() => {
+    setNotifications(checkExpiringProducts(products));
+  }, [products]);
 
-  const loadAll = async () => {
+  // ── Load products once ───────────────────────────────────────────────────
+  const loadProducts = useCallback(async () => {
     try {
       setLoading(true);
-      const [prods, cats] = await Promise.all([
-        productService.getProducts(),
-        productService.getCategories()
-      ]);
-      setProducts(Array.isArray(prods) ? prods : []);
-      setCategories(cats);
+      const result = await productService.getProducts();
+      if (Array.isArray(result)) setProducts(result);
     } catch (err) {
-      console.error('Load error:', err);
+      console.error('Load products error:', err);
       setProducts([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleProductAdded = useCallback(async (product) => {
+  useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  // ── Handlers (stable references) ────────────────────────────────────────
+  const handleProductScanned = useCallback(async (product) => {
     try {
       const result = await productService.addProduct(product);
       if (result.product) setProducts(prev => [result.product, ...prev]);
-    } catch (err) { console.error('Add error:', err); throw err; }
-  }, []);
-
-  const handleProductEdit = useCallback(async (productId, updates) => {
-    const result = await productService.editProduct(productId, updates);
-    if (result.product) {
-      setProducts(prev => prev.map(p =>
-        (p._id === productId || p.id === productId) ? result.product : p
-      ));
+    } catch (err) {
+      console.error('Add product error:', err);
     }
   }, []);
 
   const handleProductRemove = useCallback(async (productId) => {
-    await productService.deleteProduct(productId);
-    setProducts(prev => prev.filter(p => p._id !== productId && p.id !== productId));
+    try {
+      await productService.deleteProduct(productId);
+      setProducts(prev => prev.filter(p => (p._id || p.id) !== productId));
+    } catch (err) {
+      console.error('Delete product error:', err);
+    }
   }, []);
 
-  const navigateTo = (tab) => {
+  const switchTab = useCallback((tab) => {
     setActiveTab(tab);
     setSidebarOpen(false);
-  };
+  }, []);
+
+  const navItems = [
+    { id: 'scanner',  icon: 'fa-camera',          label: 'Scanner'        },
+    { id: 'manual',   icon: 'fa-pencil-alt',       label: 'Add Manual'     },
+    { id: 'products', icon: 'fa-box-open',         label: `Products (${products.length})` },
+  ];
 
   return (
     <div className={`dashboard ${sidebarOpen ? 'sidebar-open' : ''}`}>
+
+      <Header
+        user={user}
+        onLogout={onLogout}
+        notifications={notifications}
+        onMenuClick={() => setSidebarOpen(o => !o)}
+      />
+
+      {/* Overlay */}
       <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
 
-      {/* ── SIDEBAR (no separate header — sidebar IS the nav) ── */}
+      {/* Sidebar */}
       <aside className="sidebar">
-        <div className="sidebar-brand">
-          <div className="brand-logo">
-            <i className="fas fa-leaf brand-leaf"></i>
-            <span className="brand-name">Fresh<span>Track</span></span>
+        <div className="sidebar-profile">
+          <div className="sidebar-avatar">{user.name?.charAt(0).toUpperCase()}</div>
+          <div className="sidebar-user-info">
+            <strong>{user.name}</strong>
+            <small>{user.email}</small>
           </div>
-          <button className="sidebar-close" onClick={() => setSidebarOpen(false)}>
-            <i className="fas fa-times"></i>
+          <button className="sidebar-close-btn" onClick={() => setSidebarOpen(false)}>
+            <i className="fas fa-times" />
           </button>
-        </div>
-
-        <div className="user-profile">
-          <div className="user-avatar">{user.name?.charAt(0).toUpperCase()}</div>
-          <div className="user-info-sidebar">
-            <h3>{user.name}</h3>
-            <p>{user.email}</p>
-          </div>
-          {notifications.length > 0 && (
-            <span className="sidebar-notif-badge">{notifications.length}</span>
-          )}
         </div>
 
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map(item => (
+          {navItems.map(item => (
             <button
-              key={item.key}
-              className={`nav-item ${activeTab === item.key ? 'active' : ''}`}
-              onClick={() => navigateTo(item.key)}
+              key={item.id}
+              className={`sidebar-nav-btn ${activeTab === item.id ? 'active' : ''}`}
+              onClick={() => switchTab(item.id)}
             >
-              <i className={`fas ${item.icon}`}></i>
+              <i className={`fas ${item.icon}`} />
               <span>{item.label}</span>
-              {item.badge === 'count' && products.length > 0 && (
-                <span className="nav-badge">{products.length}</span>
-              )}
+              {activeTab === item.id && <span className="nav-active-dot" />}
             </button>
           ))}
-          <div className="nav-divider" />
-          <button className="nav-item nav-logout" onClick={onLogout}>
-            <i className="fas fa-sign-out-alt"></i>
-            <span>Logout</span>
-          </button>
         </nav>
 
-        <div className="sidebar-stats">
-          <div className="sidebar-stat">
-            <span className="ss-num ss-safe">{stats.safe}</span>
-            <span className="ss-label">Safe</span>
-          </div>
-          <div className="sidebar-stat">
-            <span className="ss-num ss-warn">{stats.expiringSoon}</span>
-            <span className="ss-label">Soon</span>
-          </div>
-          <div className="sidebar-stat">
-            <span className="ss-num ss-danger">{stats.expired}</span>
-            <span className="ss-label">Expired</span>
-          </div>
+        <div className="sidebar-footer">
+          <button className="sidebar-nav-btn logout-nav-btn" onClick={onLogout}>
+            <i className="fas fa-sign-out-alt" />
+            <span>Logout</span>
+          </button>
         </div>
       </aside>
 
-      {/* ── MAIN ── */}
-      <div className="dashboard-main">
-        {/* Mobile top bar — replaces Header.jsx entirely */}
-        <div className="mobile-topbar">
-          <button className="mobile-menu-btn" onClick={() => setSidebarOpen(true)}>
-            <i className="fas fa-bars"></i>
-          </button>
-          <div className="mobile-brand">
-            <i className="fas fa-leaf" style={{ color: '#81c784' }}></i>
-            <span>FreshTrack</span>
-          </div>
-          <div className="mobile-notif-wrap">
-            {notifications.length > 0 && (
-              <span className="notif-dot">{notifications.length}</span>
-            )}
-            <i className="fas fa-bell"></i>
-          </div>
+      {/* Main */}
+      <main className="dash-main">
+
+        {/* Stats row */}
+        <div className="stats-row">
+          <StatCard icon="fa-boxes"               label="Total"         value={stats.total}       colorClass="stat-neutral" onClick={() => switchTab('products')} />
+          <StatCard icon="fa-check-circle"         label="Safe"          value={stats.safe}        colorClass="stat-safe"    onClick={() => switchTab('products')} />
+          <StatCard icon="fa-exclamation-triangle" label="Expiring Soon" value={stats.expiringSoon} colorClass="stat-warn"   onClick={() => switchTab('products')} />
+          <StatCard icon="fa-times-circle"         label="Expired"       value={stats.expired}     colorClass="stat-danger"  onClick={() => switchTab('products')} />
         </div>
 
-        <main className="main-content">
-          <div className="stats-grid">
-            <div className="stat-card clickable" onClick={() => navigateTo('products')}>
-              <div className="stat-icon total"><i className="fas fa-box-open"></i></div>
-              <div className="stat-info"><h4>{stats.total}</h4><p>Total Groceries</p></div>
-            </div>
-            <div className="stat-card clickable" onClick={() => navigateTo('products')}>
-              <div className="stat-icon warning"><i className="fas fa-clock"></i></div>
-              <div className="stat-info"><h4>{stats.expiringSoon}</h4><p>Expiring Soon</p></div>
-            </div>
-            <div className="stat-card clickable" onClick={() => navigateTo('products')}>
-              <div className="stat-icon danger"><i className="fas fa-exclamation-triangle"></i></div>
-              <div className="stat-info"><h4>{stats.expired}</h4><p>Expired Items</p></div>
-            </div>
-          </div>
+        {/* Tab strip */}
+        <div className="tab-strip">
+          {navItems.map(item => (
+            <button
+              key={item.id}
+              className={`tab-btn ${activeTab === item.id ? 'active' : ''}`}
+              onClick={() => switchTab(item.id)}
+            >
+              <i className={`fas ${item.icon}`} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
 
-          {activeTab === 'scanner' && (
-            <Scanner onProductScanned={handleProductAdded} />
-          )}
-          {activeTab === 'products' && (
-            <ProductList
-              products={products}
-              categories={categories}
-              onRemoveProduct={handleProductRemove}
-              onEditProduct={handleProductEdit}
-              loading={loading}
-            />
-          )}
-          {activeTab === 'recent' && <RecentlyAdded />}
-          {activeTab === 'manual' && (
-            <AddManual onProductAdded={handleProductAdded} categories={categories} />
-          )}
-        </main>
-      </div>
+        {/* Tab content */}
+        <div className="tab-content">
+          <Suspense fallback={<TabSpinner />}>
+            {activeTab === 'scanner'  && <Scanner    onProductScanned={handleProductScanned} />}
+            {activeTab === 'manual'   && <AddManual  onProductAdded={handleProductScanned} />}
+            {activeTab === 'products' && <ProductList products={products} onRemoveProduct={handleProductRemove} loading={loading} />}
+          </Suspense>
+        </div>
+
+      </main>
     </div>
   );
 };

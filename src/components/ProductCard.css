@@ -1,0 +1,57 @@
+/* ProductCard.css */
+.pc-card {
+  padding: 1rem;
+  display: flex; flex-direction: column; gap: .75rem;
+  transition: transform .2s, box-shadow .2s;
+}
+.pc-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+/* Left border status accent */
+.pc-card--safe     { border-left: 3px solid var(--status-safe);   }
+.pc-card--warn     { border-left: 3px solid var(--status-warn);   }
+.pc-card--danger   { border-left: 3px solid var(--status-danger); }
+.pc-card--critical { border-left: 3px solid var(--status-danger); background: var(--status-danger-bg); }
+.pc-card--expired  { border-left: 3px solid #6b7280; opacity: .8; }
+
+.pc-header {
+  display: flex; align-items: flex-start; gap: .75rem;
+}
+.pc-img-wrap {
+  width: 44px; height: 44px; flex-shrink: 0;
+  background: var(--bg-card2); border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.pc-img  { width: 100%; height: 100%; object-fit: contain; }
+.pc-emoji { font-size: 1.5rem; }
+
+.pc-info { flex: 1; min-width: 0; }
+.pc-name {
+  font-size: .9rem; font-weight: 700; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: .25rem;
+}
+.pc-meta { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.pc-brand { font-size: .72rem; color: var(--text-muted); }
+
+.pc-days-badge { flex-shrink: 0; white-space: nowrap; font-size: .72rem; }
+
+.pc-body { display: flex; flex-direction: column; gap: .3rem; }
+.pc-date-row {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .8rem; color: var(--text-secondary);
+}
+.pc-date-row i { color: var(--accent); width: 14px; text-align: center; }
+.pc-date-row strong { color: var(--text-primary); }
+.pc-barcode { font-family: monospace; font-size: .72rem; color: var(--text-muted); }
+
+.pc-footer {
+  display: flex; gap: .5rem; align-items: center;
+  padding-top: .5rem; border-top: 1px solid var(--border);
+}
+.pc-cal-link {
+  flex: 1; text-align: center; text-decoration: none;
+  font-size: .78rem; padding: .45rem .75rem;
+  justify-content: center;
+}
+.pc-cal-link:hover { text-decoration: none; }
+.pc-del-btn { font-size: .78rem; padding: .45rem .875rem; }
