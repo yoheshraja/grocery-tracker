@@ -1,35 +1,33 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { ThemeProvider } from './ThemeContext';
+import { ThemeProvider } from '../context/ThemeContext';
 import { authService } from '../services/authService';
 import '../styles/App.css';
 
-// Lazy-loaded pages for code splitting
+// Lazy-loaded pages (same folder — no path prefix needed)
 const HomePage  = lazy(() => import('./HomePage'));
 const Login     = lazy(() => import('./Login'));
 const Register  = lazy(() => import('./Register'));
 const Dashboard = lazy(() => import('./Dashboard'));
 
-// Page-level spinner
+// Full-page loading spinner
 const PageSpinner = () => (
   <div style={{
     minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'var(--bg-page)',
   }}>
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'1rem', color:'var(--text-muted)' }}>
-      <div className="spinner" style={{ width:42, height:42 }}/>
-      <span style={{ fontSize:'.9rem' }}>Loading…</span>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', color: 'var(--text-muted)' }}>
+      <div className="spinner" style={{ width: 42, height: 42 }} />
+      <span style={{ fontSize: '.9rem' }}>Loading…</span>
     </div>
   </div>
 );
 
-// ── App ──────────────────────────────────────────────────────────────────────
 const App = () => {
-  // 'home' | 'login' | 'register' | 'dashboard'
   const [page,  setPage]  = useState('home');
   const [user,  setUser]  = useState(null);
   const [ready, setReady] = useState(false);
 
-  // Restore session on load
+  // Restore session from localStorage on mount
   useEffect(() => {
     const token = authService.getToken();
     const saved = localStorage.getItem('ft_user');
@@ -37,7 +35,7 @@ const App = () => {
       try {
         setUser(JSON.parse(saved));
         setPage('dashboard');
-      } catch { /* invalid JSON */ }
+      } catch { /* corrupted JSON — ignore */ }
     }
     setReady(true);
   }, []);
@@ -56,8 +54,7 @@ const App = () => {
     setPage('home');
   };
 
-  const handleRegisterSuccess = (userData, token) => {
-    // Go to login with pre-filled email after register
+  const handleRegisterSuccess = () => {
     setPage('login');
   };
 
@@ -66,10 +63,10 @@ const App = () => {
   return (
     <ThemeProvider>
       <Suspense fallback={<PageSpinner />}>
-        {page === 'home'      && <HomePage  onLogin={() => setPage('login')} onRegister={() => setPage('register')} />}
-        {page === 'login'     && <Login     onLogin={handleLogin} onSwitchToRegister={() => setPage('register')} prefillEmail={localStorage.getItem('lastRegisteredEmail') || ''} />}
-        {page === 'register'  && <Register  onRegisterSuccess={handleRegisterSuccess} onSwitchToLogin={() => setPage('login')} />}
-        {page === 'dashboard' && user && <Dashboard user={user} onLogout={handleLogout} />}
+        {page === 'home'      && <HomePage   onLogin={() => setPage('login')} onRegister={() => setPage('register')} />}
+        {page === 'login'     && <Login      onLogin={handleLogin} onSwitchToRegister={() => setPage('register')} prefillEmail={localStorage.getItem('lastRegisteredEmail') || ''} />}
+        {page === 'register'  && <Register   onRegisterSuccess={handleRegisterSuccess} onSwitchToLogin={() => setPage('login')} />}
+        {page === 'dashboard' && user        && <Dashboard user={user} onLogout={handleLogout} />}
       </Suspense>
     </ThemeProvider>
   );
