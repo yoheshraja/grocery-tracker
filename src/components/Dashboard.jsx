@@ -3,8 +3,7 @@ import Header from './Header';
 import { productService } from '../services/authService';
 import { checkExpiringProducts } from '../services/notifications';
 import './Dashboard.css';
-import ProductCard from './ProductCard';
-import './Scanner.css';
+
 
 // ── Lazy-loaded tabs (code splitting) ────────────────────────────────────────
 const Scanner    = lazy(() => import('./Scanner'));
