@@ -24,7 +24,7 @@ import {
   extractExpiryFromWords,
   parseTypedDate,
   formatISO,
-} from './ocrDateExtractor';
+} from './Ocrdateextractor';
 
 // ─── Category mapping ────────────────────────────────────────────────────────
 const CATEGORY_RULES = [
