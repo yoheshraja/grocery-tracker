@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { authService } from '../services/authService';
 import ForgotPassword from './ForgotPassword';
-import '../styles/globals.css';
+import '../styles/App.css';
 import './Auth.css';
 const Login = ({ onLogin, onSwitchToRegister, prefillEmail = '' }) => {
   const [formData, setFormData] = useState({ 
