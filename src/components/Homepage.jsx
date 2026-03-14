@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from '..src/context/ThemeContext';
 import './HomePage.css';
 
 const FEATURES = [
