@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { authService } from '../services/authService';
-import './Auth.css';
+import '../Auth.css';
 
 const Register = ({ onRegisterSuccess, onSwitchToLogin }) => { 
   const [formData, setFormData] = useState({
