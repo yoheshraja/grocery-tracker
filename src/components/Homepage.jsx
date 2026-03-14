@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import './HomePage.css';
+import './Homepage.css';
 
 const FEATURES = [
   { icon: 'fa-barcode',       title: 'Barcode Scanner',      desc: 'Instantly identify any packaged product with your camera. Auto-fills product name from OpenFoodFacts.' },
