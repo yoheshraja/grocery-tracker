@@ -4,7 +4,7 @@ import { authService } from './services/authService';
 import './styles/App.css';
 
 // Lazy-loaded pages for code splitting
-const HomePage  = lazy(() => import('./components/HomePage'));
+const HomePage  = lazy(() => import('./components/Homepage'));
 const Login     = lazy(() => import('./components/Login'));
 const Register  = lazy(() => import('./components/Register'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
