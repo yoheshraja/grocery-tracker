@@ -1,4 +1,4 @@
-const API_BASE = 'https://grocery-tracker-backends.onrender.com';
+const API_BASE = 'https://grocery-tracker-backends.onrender.com/api';
 
 let authToken = null;
 
