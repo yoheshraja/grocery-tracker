@@ -1,5 +1,5 @@
 import React, { useState, memo } from 'react';
-import './AddManual.css';
+import './Addmanual.css';
 
 const CATEGORIES = ['Dairy','Fruits','Vegetables','Meat & Seafood','Bakery','Snacks','Beverages','Canned Goods','Frozen Foods','Condiments','Personal Care','Other'];
 
