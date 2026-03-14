@@ -1,7 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { ThemeProvider } from './context/ThemeContext';
+import { ThemeProvider } from './components/ThemeContext';
 import { authService } from './services/authService';
-import './styles/App.css';
+import './styles/globals.css';
 
 // Lazy-loaded pages for code splitting
 const HomePage  = lazy(() => import('./components/HomePage'));
