@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from './context/ThemeContext';
 import './Header.css';
 
 const Header = memo(({ user, onLogout, notifications = [], onMenuClick }) => {
