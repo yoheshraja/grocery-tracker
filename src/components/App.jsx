@@ -1,5 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { ThemeProvider } from './context/ThemeContext';
+import { ThemeProvider } from '../context/ThemeContext';
 import { authService } from '../services/authService';
 import '../styles/App.css';
 
