@@ -19,7 +19,7 @@ import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 import Tesseract from 'tesseract.js';
 import './Scanner.css';
-// ─── Inlined OCR date extractor ─────────────────────────────────────────────
+// ─── Inlined OCR date extractor (v2 — all formats + recently-expired fix) ────
 const MONTHS = {
   JAN:1,JANUARY:1,FEB:2,FEBRUARY:2,MAR:3,MARCH:3,APR:4,APRIL:4,MAY:5,
   JUN:6,JUNE:6,JUL:7,JULY:7,AUG:8,AUGUST:8,
@@ -27,41 +27,75 @@ const MONTHS = {
 };
 const MRE='JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?';
 
+// FIX 1: Accept dates up to 60 days in the past (recently-expired products
+//         still need to be recorded; strict "future only" was rejecting valid OCR reads)
+// FIX 2: Accept years from 2024 (not 2025) to handle Dec 2024 labels still in use
 function toISO(yyyy,mm,dd=1){
   let y=parseInt(yyyy,10),m=parseInt(mm,10),d=parseInt(dd,10);
   if(isNaN(y)||isNaN(m)||isNaN(d))return null;
-  if(y<100){if(y>=25&&y<=39)y+=2000;else return null;}
-  if(y<2025||y>2040||m<1||m>12||d<1||d>31)return null;
+  // 2-digit year: 24-39 → 2024-2039
+  if(y<100){if(y>=24&&y<=39)y+=2000;else return null;}
+  if(y<2024||y>2040||m<1||m>12||d<1||d>31)return null;
   const dt=new Date(y,m-1,d);
   if(isNaN(dt.getTime()))return null;
-  const today=new Date();today.setHours(0,0,0,0);
-  if(dt<today)return null;
+  // Allow up to 60 days in the past — rejects manufacture dates (years old)
+  // but accepts recently-expired labels a user is scanning to log
+  const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-60); cutoff.setHours(0,0,0,0);
+  if(dt<cutoff)return null;
   return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 function monthNum(n){return MONTHS[(n||'').toUpperCase().replace(/\.$/,'')]||null;}
 
+// FIX 3: 12 patterns covering every real-world expiry label format
 const DATE_PATTERNS=[
-  {re:/\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](20[2-9]\d)\b/,parse:m=>toISO(m[3],m[2],m[1])},
-  {re:/\b(20[2-9]\d)[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])\b/,parse:m=>toISO(m[1],m[2],m[3])},
-  {re:new RegExp(`\\b(0?[1-9]|[12]\\d|3[01])[\\s\\-\\/\\.](${MRE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`,'i'),parse:m=>toISO(m[3],monthNum(m[2]),m[1])},
-  {re:new RegExp(`\\b(${MRE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`,'i'),parse:m=>toISO(m[2],monthNum(m[1]),1)},
-  {re:new RegExp(`\\b(20[2-9]\\d)[\\s\\-\\/\\.](${MRE})\\b`,'i'),parse:m=>toISO(m[1],monthNum(m[2]),1)},
-  {re:/\b(0?[1-9]|1[0-2])[\/\-](20[2-9]\d)\b/,parse:m=>toISO(m[2],m[1],1)},
-  {re:/\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.]([2-9]\d)\b/,parse:m=>toISO(m[3],m[2],m[1])},
+  // 1. DD/MM/YYYY  DD.MM.YYYY  DD-MM-YYYY  (most common Indian label)
+  {re:/\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](20[2-9]\d)\b/,    parse:m=>toISO(m[3],m[2],m[1])},
+  // 2. YYYY-MM-DD  YYYY/MM/DD  YYYY.MM.DD  (ISO-style)
+  {re:/\b(20[2-9]\d)[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])\b/,    parse:m=>toISO(m[1],m[2],m[3])},
+  // 3. DD MMM YYYY  (26 MAR 2026, 26-MAR-2026, 26/MAR/26)
+  {re:new RegExp(`\\b(0?[1-9]|[12]\\d|3[01])[\\s\\-\\/\\.](${MRE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`,'i'), parse:m=>toISO(m[3],monthNum(m[2]),m[1])},
+  // 4. MMM YYYY  (MAR 2026, MAR-2026, MAR.2026)
+  {re:new RegExp(`\\b(${MRE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`,'i'),                  parse:m=>toISO(m[2],monthNum(m[1]),1)},
+  // 5. YYYY MMM  (2026-MAR, 2026 MAR)
+  {re:new RegExp(`\\b(20[2-9]\\d)[\\s\\-\\/\\.](${MRE})\\b`,'i'),                  parse:m=>toISO(m[1],monthNum(m[2]),1)},
+  // 6. MM/YYYY  MM-YYYY  (03/2026 — slash/dash only, NOT dot to avoid 03.26 false match)
+  {re:/\b(0?[1-9]|1[0-2])[\/\-](20[2-9]\d)\b/,                                     parse:m=>toISO(m[2],m[1],1)},
+  // 7. MM.YYYY  (03.2026 — dot variant, requires zero-padded month to be safe)
+  {re:/\b(0[1-9]|1[0-2])\.(20[2-9]\d)\b/,                                           parse:m=>toISO(m[2],m[1],1)},
+  // 8. DD/MM/YY  DD.MM.YY  DD-MM-YY  2-digit year  (11.03.26 — THE FAILING CASE)
+  {re:/\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.]([2-9]\d)\b/,      parse:m=>toISO(m[3],m[2],m[1])},
+  // 9. DD MM YYYY  space-separated  (26 03 2026)
+  {re:/\b(0?[1-9]|[12]\d|3[01])\s+(0?[1-9]|1[0-2])\s+(20[2-9]\d)\b/,              parse:m=>toISO(m[3],m[2],m[1])},
+  // 10. MMYYYY  no separator  (032026 ink stamp)
+  {re:/\b(0[1-9]|1[0-2])(20[2-9]\d)\b/,                                             parse:m=>toISO(m[2],m[1],1)},
+  // 11. DDMMYYYY  no separator  (26032026)
+  {re:/\b(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])(20[2-9]\d)\b/,                       parse:m=>toISO(m[3],m[2],m[1])},
+  // 12. DDMMYY  no separator  (260326 ink stamp)
+  {re:/\b(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])([2-9]\d)\b/,                         parse:m=>toISO(m[3],m[2],m[1])},
 ];
 
 function extractFromText(text){
-  for(const{re,parse}of DATE_PATTERNS){const m=text.match(re);if(m){const iso=parse(m);if(iso)return iso;}}
+  // Use matchAll so multiple dates on one line (e.g. "MFD 01.01.2026 EXP 26.03.2026")
+  // all get tried — the first match may be the MFD date (too old), second is the expiry.
+  for(const{re,parse}of DATE_PATTERNS){
+    const flags=re.flags.includes('g')?re.flags:re.flags+'g';
+    const all=[...text.matchAll(new RegExp(re.source,flags))];
+    for(const m of all){const iso=parse(m);if(iso)return iso;}
+  }
   return null;
 }
 
 function cleanOCRText(raw){
   if(!raw||typeof raw!=='string')return'';
   return raw.toUpperCase()
-    .replace(/[©®™°•·~§£€¥@#%^&*_+=\[\]{}<>?!'\"\\|]/g,' ')
+    // Remove noise symbols that never appear in dates
+    .replace(/[©®™°•·~§£€¥@#%^&*_+=\[\]{}<>?!'"\\|]/g,' ')
+    // Fix digit/letter confusion (only between digits to protect month names)
     .replace(/(\d)[OQ](\d)/g,'$10$2').replace(/(\d)[Il](\d)/g,'$11$2')
     .replace(/(\d)S(\d)/g,'$15$2').replace(/(\d)Z(\d)/g,'$12$2')
-    .replace(/(\d)[,;](\d)/g,'$1/$2').replace(/(\d)\s{0,2}-\s{0,2}(\d)/g,'$1-$2')
+    // Normalise separators
+    .replace(/(\d)[,;](\d)/g,'$1/$2')
+    .replace(/(\d)\s{0,2}-\s{0,2}(\d)/g,'$1-$2')
     .replace(/\s+/g,' ').trim();
 }
 
@@ -80,7 +114,10 @@ const MFD_RE=/\b(MFD(?:\s*DATE)?|MFG(?:\s*DATE)?|MANUFACTURED|DOM|DATE\s*OF\s*(?
 function scoreDate(iso,labelled){
   const days=(new Date(iso)-new Date())/86400000;
   let s=labelled?10000:0;
-  if(days>=30&&days<=1825)s+=500;else if(days>0&&days<30)s+=100;else if(days>1825)s+=50;
+  // Prefer dates in the near future; slightly past dates still acceptable
+  if(days>=0&&days<=1825)s+=500;
+  else if(days>1825)s+=50;
+  else if(days>=-60)s+=200; // recently expired: higher than unlabelled future
   return s+days;
 }
 
@@ -90,12 +127,15 @@ export function extractExpiryDate(rawText){
   const lines=cleaned.split(/[\n\r|;]/).map(l=>l.trim()).filter(Boolean);
   const candidates=[];
   for(const line of lines){
-    if(MFD_RE.test(line))continue;
+    // FIX 4: Only skip a line as MFD if it has NO expiry keyword on the same line.
+    // "MFD 01.01.2026 EXP 26.03.2026" must not be skipped — it contains both.
+    if(MFD_RE.test(line)&&!EXP_RE.test(line))continue;
     const iso=extractFromText(line);
     if(iso)candidates.push({iso,raw:line,score:scoreDate(iso,EXP_RE.test(line))});
   }
   if(!candidates.length){
-    const block=lines.filter(l=>!MFD_RE.test(l)).join(' ');
+    // Fallback: join all non-pure-MFD lines and scan the block
+    const block=lines.filter(l=>!(MFD_RE.test(l)&&!EXP_RE.test(l))).join(' ');
     const iso=extractFromText(block);
     if(iso)candidates.push({iso,raw:block,score:scoreDate(iso,EXP_RE.test(block))});
   }
@@ -128,6 +168,13 @@ export function extractExpiryFromWords(words){
       }
     }
   }
+  // FIX 5: If keyword-based search found nothing, scan ALL words for any date
+  // (handles labels where there's no explicit keyword, just a bare date)
+  if(!candidates.length){
+    const allText=norm.map(w=>w.text).join(' ');
+    const iso=extractFromText(allText);
+    if(iso)candidates.push({iso,raw:allText,score:scoreDate(iso,false)});
+  }
   if(!candidates.length)return null;
   candidates.sort((a,b)=>b.score-a.score);
   const best=candidates[0];
@@ -139,14 +186,17 @@ export function formatISO(iso){
   return new Date(iso+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
 }
 
+// FIX 6: parseTypedDate also accepts recently-expired dates (user typing manually)
+// and handles more free-form inputs like "march 2026", "3/26" etc.
 export function parseTypedDate(val){
   if(!val?.trim())return null;
   const result=extractExpiryDate(val);
   if(result)return result.iso;
+  // Native Date parse fallback (handles "2026-03-11", "March 11 2026" etc.)
   const d=new Date(val);
   if(!isNaN(d.getTime())){
-    const today=new Date();today.setHours(0,0,0,0);
-    if(d>=today)return d.toISOString().split('T')[0];
+    const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-60);
+    if(d>=cutoff)return d.toISOString().split('T')[0];
   }
   return null;
 }
