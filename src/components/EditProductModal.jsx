@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import './EditProductModal.css';
 
 const EditProductModal = ({ product, categories, onSave, onClose }) => {
   const [formData, setFormData] = useState({
