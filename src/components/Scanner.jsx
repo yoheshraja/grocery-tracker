@@ -277,7 +277,9 @@ const ALL_CATEGORIES = [
 
 // ─── Image preprocessing ─────────────────────────────────────────────────────
 function makeVariant(srcCanvas, type) {
-  const SCALE = 2;
+  // Use 4x scale — critical for dot-matrix and ink-stamp fonts
+  // Higher resolution gives Tesseract much more detail to work with
+  const SCALE = type === 'dotmatrix' || type === 'dotmatrix-inv' ? 4 : 3;
   const c = document.createElement('canvas');
   c.width  = srcCanvas.width  * SCALE;
   c.height = srcCanvas.height * SCALE;
@@ -287,8 +289,10 @@ function makeVariant(srcCanvas, type) {
   ctx.drawImage(srcCanvas, 0, 0, c.width, c.height);
   const id = ctx.getImageData(0, 0, c.width, c.height);
   const d  = id.data;
+  const W  = c.width, H = c.height;
 
   if (type === 'grey') {
+    // High-contrast greyscale with contrast boost
     for (let i = 0; i < d.length; i += 4) {
       const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
       const f = (259*(80+255))/(255*(259-80));
@@ -296,20 +300,76 @@ function makeVariant(srcCanvas, type) {
       d[i]=d[i+1]=d[i+2]=v; d[i+3]=255;
     }
   } else if (type === 'thresh') {
+    // Binary threshold — dark text on white
     for (let i = 0; i < d.length; i += 4) {
       const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
-      const v = g > 140 ? 255 : 0;
+      const v = g > 128 ? 255 : 0;
       d[i]=d[i+1]=d[i+2]=v; d[i+3]=255;
     }
   } else if (type === 'inv') {
+    // Inverted threshold — white text on black (embossed/foil labels)
     for (let i = 0; i < d.length; i += 4) {
       const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
-      const v = g > 140 ? 0 : 255;
+      const v = g > 128 ? 0 : 255;
       d[i]=d[i+1]=d[i+2]=v; d[i+3]=255;
+    }
+  } else if (type === 'dotmatrix') {
+    // Dot-matrix / perforated label fix:
+    // 1. Convert to greyscale
+    // 2. Apply dilation (max-pool 3x3) to fill gaps between dots
+    // 3. Then threshold to get solid strokes
+    const grey = new Uint8Array(W * H);
+    for (let i = 0; i < d.length; i += 4) {
+      grey[i/4] = Math.round(0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2]);
+    }
+    // Dilation: each pixel becomes the MAX of its 3x3 neighbourhood
+    // This merges nearby dots into solid letter strokes
+    const dilated = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let maxVal = 0;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const ny = Math.min(H-1, Math.max(0, y+dy));
+            const nx = Math.min(W-1, Math.max(0, x+dx));
+            maxVal = Math.max(maxVal, grey[ny*W+nx]);
+          }
+        }
+        dilated[y*W+x] = maxVal;
+      }
+    }
+    // Threshold the dilated result: dots merged into filled glyphs
+    for (let i = 0; i < W*H; i++) {
+      const v = dilated[i] > 100 ? 255 : 0;
+      d[i*4]=d[i*4+1]=d[i*4+2]=v; d[i*4+3]=255;
+    }
+  } else if (type === 'dotmatrix-inv') {
+    // Same as dotmatrix but inverted (for dark backgrounds with light dots)
+    const grey = new Uint8Array(W * H);
+    for (let i = 0; i < d.length; i += 4) {
+      grey[i/4] = 255 - Math.round(0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2]);
+    }
+    const dilated = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let maxVal = 0;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const ny = Math.min(H-1, Math.max(0, y+dy));
+            const nx = Math.min(W-1, Math.max(0, x+dx));
+            maxVal = Math.max(maxVal, grey[ny*W+nx]);
+          }
+        }
+        dilated[y*W+x] = maxVal;
+      }
+    }
+    for (let i = 0; i < W*H; i++) {
+      const v = dilated[i] > 100 ? 255 : 0;
+      d[i*4]=d[i*4+1]=d[i*4+2]=v; d[i*4+3]=255;
     }
   }
   ctx.putImageData(id, 0, 0);
-  return c.toDataURL('image/jpeg', 0.92);
+  return c.toDataURL('image/png', 1.0); // PNG lossless — better for OCR than JPEG
 }
 
 // ─── Google Calendar helper ──────────────────────────────────────────────────
@@ -621,7 +681,8 @@ const Scanner = ({ onProductScanned }) => {
       const cropH = Math.max(20, Math.round(natH * box.h));
 
       // Draw crop to an isolated canvas — never reuse canvasRef during OCR
-      const MIN_H  = 100;  // minimum height for Tesseract accuracy
+      // Always upscale to at least 200px tall; makeVariant will then scale 3-4x more
+      const MIN_H  = 200;
       const upscale = cropH < MIN_H ? Math.ceil(MIN_H / cropH) : 1;
       const cropCanvas = document.createElement('canvas');
       cropCanvas.width  = cropW * upscale;
@@ -635,26 +696,56 @@ const Scanner = ({ onProductScanned }) => {
       const croppedUrl = cropCanvas.toDataURL('image/jpeg', 0.94);
       setCapturedImg(croppedUrl);
 
-      // Adaptive PSM: short crop → single line, taller → block
-      const psm = box.h < 0.12 ? '7' : '6';
-      const TESS_CONFIG = {
-        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-.: ',
-        preserve_interword_spaces: '1',
-        tessedit_pageseg_mode: psm,
-      };
+      // Try multiple image variants × PSM modes for maximum coverage:
+      // - Standard variants: grey, thresh, inv
+      // - Dot-matrix variants: dotmatrix, dotmatrix-inv (dilation fills dot gaps)
+      // - PSM 6: block text  PSM 7: single line  PSM 13: raw line (no OSD)
+      // Each combo runs until a date is found; order goes most→least likely.
+      const TRIES = [
+        // Single-line PSMs first (expiry date labels are almost always one line)
+        { type:'grey',          psm:'7'  },
+        { type:'thresh',        psm:'7'  },
+        { type:'inv',           psm:'7'  },
+        // Dot-matrix variants (dot-matrix / perforated fonts like the screenshot)
+        { type:'dotmatrix',     psm:'7'  },
+        { type:'dotmatrix-inv', psm:'7'  },
+        { type:'dotmatrix',     psm:'13' },
+        { type:'dotmatrix-inv', psm:'13' },
+        // Block mode fallbacks
+        { type:'grey',          psm:'6'  },
+        { type:'thresh',        psm:'6'  },
+        { type:'inv',           psm:'6'  },
+        // Raw line — no layout analysis, best for single-row stamps
+        { type:'grey',          psm:'13' },
+        { type:'thresh',        psm:'13' },
+      ];
 
-      let ocrResult = null, bestText = '';
-      for (const type of ['grey', 'thresh', 'inv']) {
-        showMsg(type === 'grey' ? 'Enhancing…' : 'Retrying…');
+      let ocrResult = null, bestText = '', triedCount = 0;
+      for (const { type, psm } of TRIES) {
+        // Stop after finding a result OR after 6 tries to keep it fast
+        if (ocrResult) break;
+        if (triedCount >= 6 && !ocrResult) {
+          // Only continue past 6 if we have no result at all
+          if (triedCount >= TRIES.length) break;
+        }
+        triedCount++;
+        const label = triedCount === 1 ? 'Enhancing…'
+                    : type.startsWith('dotmatrix') ? 'Trying dot-matrix mode…'
+                    : 'Retrying…';
+        showMsg(label);
         try {
           const variant = makeVariant(cropCanvas, type);
-          const ocr = await Tesseract.recognize(variant, 'eng', TESS_CONFIG);
+          const ocr = await Tesseract.recognize(variant, 'eng', {
+            tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-.: ',
+            preserve_interword_spaces: '1',
+            tessedit_pageseg_mode: psm,
+          });
           const { text, words } = ocr.data;
           if (text.trim().length > bestText.length) bestText = text.trim();
           if (words?.length) { const r = extractExpiryFromWords(words); if (r) { ocrResult=r; break; } }
           const r = extractExpiryDate(text);
           if (r) { ocrResult=r; break; }
-        } catch (e) { console.warn('OCR', type, e.message); }
+        } catch (e) { console.warn('OCR', type, psm, e.message); }
       }
 
       setOcrRawText(bestText);
