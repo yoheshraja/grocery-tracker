@@ -19,12 +19,137 @@ import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 import Tesseract from 'tesseract.js';
 import './Scanner.css';
-import {
-  extractExpiryDate,
-  extractExpiryFromWords,
-  parseTypedDate,
-  formatISO,
-} from '../utils/Ocrdateextractor';
+// ─── Inlined OCR date extractor ─────────────────────────────────────────────
+const MONTHS = {
+  JAN:1,JANUARY:1,FEB:2,FEBRUARY:2,MAR:3,MARCH:3,APR:4,APRIL:4,MAY:5,
+  JUN:6,JUNE:6,JUL:7,JULY:7,AUG:8,AUGUST:8,
+  SEP:9,SEPT:9,SEPTEMBER:9,OCT:10,OCTOBER:10,NOV:11,NOVEMBER:11,DEC:12,DECEMBER:12,
+};
+const MRE='JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?';
+
+function toISO(yyyy,mm,dd=1){
+  let y=parseInt(yyyy,10),m=parseInt(mm,10),d=parseInt(dd,10);
+  if(isNaN(y)||isNaN(m)||isNaN(d))return null;
+  if(y<100){if(y>=25&&y<=39)y+=2000;else return null;}
+  if(y<2025||y>2040||m<1||m>12||d<1||d>31)return null;
+  const dt=new Date(y,m-1,d);
+  if(isNaN(dt.getTime()))return null;
+  const today=new Date();today.setHours(0,0,0,0);
+  if(dt<today)return null;
+  return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+function monthNum(n){return MONTHS[(n||'').toUpperCase().replace(/\.$/,'')]||null;}
+
+const DATE_PATTERNS=[
+  {re:/\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](20[2-9]\d)\b/,parse:m=>toISO(m[3],m[2],m[1])},
+  {re:/\b(20[2-9]\d)[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])\b/,parse:m=>toISO(m[1],m[2],m[3])},
+  {re:new RegExp(`\\b(0?[1-9]|[12]\\d|3[01])[\\s\\-\\/\\.](${MRE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`,'i'),parse:m=>toISO(m[3],monthNum(m[2]),m[1])},
+  {re:new RegExp(`\\b(${MRE})[\\s\\-\\/\\.](20[2-9]\\d)\\b`,'i'),parse:m=>toISO(m[2],monthNum(m[1]),1)},
+  {re:new RegExp(`\\b(20[2-9]\\d)[\\s\\-\\/\\.](${MRE})\\b`,'i'),parse:m=>toISO(m[1],monthNum(m[2]),1)},
+  {re:/\b(0?[1-9]|1[0-2])[\/\-](20[2-9]\d)\b/,parse:m=>toISO(m[2],m[1],1)},
+  {re:/\b(0?[1-9]|[12]\d|3[01])[\/\-\.](0?[1-9]|1[0-2])[\/\-\.]([2-9]\d)\b/,parse:m=>toISO(m[3],m[2],m[1])},
+];
+
+function extractFromText(text){
+  for(const{re,parse}of DATE_PATTERNS){const m=text.match(re);if(m){const iso=parse(m);if(iso)return iso;}}
+  return null;
+}
+
+function cleanOCRText(raw){
+  if(!raw||typeof raw!=='string')return'';
+  return raw.toUpperCase()
+    .replace(/[©®™°•·~§£€¥@#%^&*_+=\[\]{}<>?!'\"\\|]/g,' ')
+    .replace(/(\d)[OQ](\d)/g,'$10$2').replace(/(\d)[Il](\d)/g,'$11$2')
+    .replace(/(\d)S(\d)/g,'$15$2').replace(/(\d)Z(\d)/g,'$12$2')
+    .replace(/(\d)[,;](\d)/g,'$1/$2').replace(/(\d)\s{0,2}-\s{0,2}(\d)/g,'$1-$2')
+    .replace(/\s+/g,' ').trim();
+}
+
+function fixKeywords(text){
+  return text
+    .replace(/USE\s+[B8][Y)]/g,'USE BY').replace(/B[E3]ST\s+B[E3]F[O0]R[E3]/g,'BEST BEFORE')
+    .replace(/EXP[1I]R[YV]/g,'EXPIRY').replace(/\bE\.X\.P\.?\b/g,'EXP')
+    .replace(/\bEXP\.\b/g,'EXP').replace(/\bB\.B\.?\b/g,'BB')
+    .replace(/\bMFG?\.?\s*DATE?\.?\b/g,'MFD').replace(/\bDATE\s+OF\s+MFG\b/g,'MFD')
+    .replace(/\bDATE\s+OF\s+PKG\b/g,'MFD').replace(/\bPACKED\s+ON\b/g,'MFD');
+}
+
+const EXP_RE=/\b(BEST\s*BEFORE|USE\s*BY|USE\s*BEFORE|EXPIRY(?:\s*DATE)?|EXPIRES?|EXP(?:\s*DATE)?|BB|CONSUME\s*BY|SELL\s*BY)\b/;
+const MFD_RE=/\b(MFD(?:\s*DATE)?|MFG(?:\s*DATE)?|MANUFACTURED|DOM|DATE\s*OF\s*(?:MFG|PKG|PACKAGING|MANUFACTURE)|PACKED\s*ON|PKD)\b/;
+
+function scoreDate(iso,labelled){
+  const days=(new Date(iso)-new Date())/86400000;
+  let s=labelled?10000:0;
+  if(days>=30&&days<=1825)s+=500;else if(days>0&&days<30)s+=100;else if(days>1825)s+=50;
+  return s+days;
+}
+
+export function extractExpiryDate(rawText){
+  if(!rawText||typeof rawText!=='string')return null;
+  const cleaned=fixKeywords(cleanOCRText(rawText));
+  const lines=cleaned.split(/[\n\r|;]/).map(l=>l.trim()).filter(Boolean);
+  const candidates=[];
+  for(const line of lines){
+    if(MFD_RE.test(line))continue;
+    const iso=extractFromText(line);
+    if(iso)candidates.push({iso,raw:line,score:scoreDate(iso,EXP_RE.test(line))});
+  }
+  if(!candidates.length){
+    const block=lines.filter(l=>!MFD_RE.test(l)).join(' ');
+    const iso=extractFromText(block);
+    if(iso)candidates.push({iso,raw:block,score:scoreDate(iso,EXP_RE.test(block))});
+  }
+  if(!candidates.length)return null;
+  candidates.sort((a,b)=>b.score-a.score);
+  const best=candidates[0];
+  return{iso:best.iso,display:formatISO(best.iso),raw:best.raw.trim()};
+}
+
+export function extractExpiryFromWords(words){
+  if(!Array.isArray(words)||!words.length)return null;
+  const EXP_WORD=/^(BEST|BEFORE|USE|BY|EXPIRY|EXPIRES?|EXP|BB|CONSUME|SELL)$/;
+  const MFD_WORD=/^(MFD|MFG|MANUFACTURED|DOM|PACKED|PKD)$/;
+  const norm=words.map((w,i)=>({i,text:fixKeywords(cleanOCRText(w.text||'')),original:w.text}));
+  const candidates=[];
+  for(let i=0;i<norm.length;i++){
+    const w=norm[i];
+    if(MFD_WORD.test(w.text))continue;
+    if(EXP_WORD.test(w.text)||EXP_RE.test(w.text)){
+      const end=Math.min(i+7,norm.length);
+      const nxt=norm.slice(i+1,end);
+      if(nxt.some(x=>MFD_WORD.test(x.text)))continue;
+      const region=[w,...nxt].map(x=>x.text).join(' ');
+      const iso=extractFromText(region);
+      if(iso){candidates.push({iso,raw:region,score:scoreDate(iso,true)});continue;}
+      for(let j=i+1;j<end-1;j++){
+        const combo=norm.slice(j,Math.min(j+4,end)).map(x=>x.text).join(' ');
+        const isoC=extractFromText(combo);
+        if(isoC){candidates.push({iso:isoC,raw:combo,score:scoreDate(isoC,true)});break;}
+      }
+    }
+  }
+  if(!candidates.length)return null;
+  candidates.sort((a,b)=>b.score-a.score);
+  const best=candidates[0];
+  return{iso:best.iso,display:formatISO(best.iso),raw:best.raw};
+}
+
+export function formatISO(iso){
+  if(!iso)return'';
+  return new Date(iso+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
+}
+
+export function parseTypedDate(val){
+  if(!val?.trim())return null;
+  const result=extractExpiryDate(val);
+  if(result)return result.iso;
+  const d=new Date(val);
+  if(!isNaN(d.getTime())){
+    const today=new Date();today.setHours(0,0,0,0);
+    if(d>=today)return d.toISOString().split('T')[0];
+  }
+  return null;
+}
 
 // ─── Category mapping ────────────────────────────────────────────────────────
 const CATEGORY_RULES = [
