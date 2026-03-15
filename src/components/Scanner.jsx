@@ -87,16 +87,44 @@ function extractFromText(text){
 
 function cleanOCRText(raw){
   if(!raw||typeof raw!=='string')return'';
-  return raw.toUpperCase()
-    // Remove noise symbols that never appear in dates
-    .replace(/[©®™°•·~§£€¥@#%^&*_+=\[\]{}<>?!'"\\|]/g,' ')
-    // Fix digit/letter confusion (only between digits to protect month names)
-    .replace(/(\d)[OQ](\d)/g,'$10$2').replace(/(\d)[Il](\d)/g,'$11$2')
-    .replace(/(\d)S(\d)/g,'$15$2').replace(/(\d)Z(\d)/g,'$12$2')
-    // Normalise separators
-    .replace(/(\d)[,;](\d)/g,'$1/$2')
-    .replace(/(\d)\s{0,2}-\s{0,2}(\d)/g,'$1-$2')
-    .replace(/\s+/g,' ').trim();
+  let t=raw.toUpperCase();
+  // Remove noise symbols
+  t=t.replace(/[©®™°•·~§£€¥@#%^&*_+=\[\]{}<>?!'"\\|]/g,' ');
+
+  // ── Multi-letter groups FIRST (before single-letter fixes consume them) ───
+  // "LL","LI","IL","II" between separators/spaces → "11" (e.g. month "11" read as "LL")
+  if(/[\d\/\-\.\s]/.test(t)){
+    t=t.replace(/(?<=[\s\/\-\.])([LI]{2})(?=[\s\/\-\.]|$)/g,(_,m)=>m.replace(/[LI]/g,'1'));
+    t=t.replace(/^([LI]{2})(?=[\s\/\-\.])/g,(_,m)=>m.replace(/[LI]/g,'1'));
+  }
+
+  // ── Single letter fixes adjacent to digit ───────────────────────────────
+  t=t.replace(/[LI](?=\d)/g,'1').replace(/(?<=\d)[LI]/g,'1');   // L7→17, 7L→71
+  t=t.replace(/[OQ](?=\d)/g,'0').replace(/(?<=\d)[OQ]/g,'0');   // O→0
+  t=t.replace(/S(?=\d)/g,'5').replace(/(?<=\d)S/g,'5');          // S→5
+  t=t.replace(/Z(?=\d)/g,'2').replace(/(?<=\d)Z/g,'2');          // Z→2
+  t=t.replace(/G(?=\d)/g,'6').replace(/(?<=\d)G/g,'6');          // G→6
+  t=t.replace(/B(?=\d)/g,'8').replace(/(?<=\d)B/g,'8');          // B→8
+
+  // ── Single letter fixes adjacent to separator / - . ─────────────────────
+  t=t.replace(/[LI](?=[\/\-\.])/g,'1').replace(/(?<=[\/\-\.])[LI]/g,'1');
+  t=t.replace(/[OQ](?=[\/\-\.])/g,'0').replace(/(?<=[\/\-\.])[OQ]/g,'0');
+  t=t.replace(/G(?=[\/\-\.])/g,'6').replace(/(?<=[\/\-\.])G/g,'6');
+
+  // ── Standalone single letter between whitespace (needs digit/sep context) ─
+  if(/[\d\/\-\.]/.test(t)){
+    t=t.replace(/(?<=[\s\/\-\.])([LI])(?=[\s\/\-\.]|$)/g,'1');
+    t=t.replace(/^([LI])(?=[\s\/\-\.])/g,'1');
+  }
+
+  // ── Between-digit fixes (legacy — kept as safety net) ───────────────────
+  t=t.replace(/(\d)[OQ](\d)/g,'$10$2').replace(/(\d)[Il](\d)/g,'$11$2');
+  t=t.replace(/(\d)S(\d)/g,'$15$2').replace(/(\d)Z(\d)/g,'$12$2');
+
+  // ── Separator normalisation ──────────────────────────────────────────────
+  t=t.replace(/(\d)[,;](\d)/g,'$1/$2');
+  t=t.replace(/(\d)\s{0,2}-\s{0,2}(\d)/g,'$1-$2');
+  return t.replace(/\s+/g,' ').trim();
 }
 
 function fixKeywords(text){
@@ -126,18 +154,29 @@ export function extractExpiryDate(rawText){
   const cleaned=fixKeywords(cleanOCRText(rawText));
   const lines=cleaned.split(/[\n\r|;]/).map(l=>l.trim()).filter(Boolean);
   const candidates=[];
-  for(const line of lines){
-    // FIX 4: Only skip a line as MFD if it has NO expiry keyword on the same line.
-    // "MFD 01.01.2026 EXP 26.03.2026" must not be skipped — it contains both.
-    if(MFD_RE.test(line)&&!EXP_RE.test(line))continue;
+
+  const tryLine=(line,labelled)=>{
     const iso=extractFromText(line);
-    if(iso)candidates.push({iso,raw:line,score:scoreDate(iso,EXP_RE.test(line))});
+    if(iso){candidates.push({iso,raw:line,score:scoreDate(iso,labelled)});return true;}
+    // Compact variant: remove spaces around separators & between adjacent digits
+    // Handles OCR inserting spaces inside dates: "17 / 12 / 26" → "17/12/26"
+    const c1=line.replace(/\s*([\\/\-.])\s*/g,'$1');
+    const c2=line.replace(/(\d)\s+(\d)/g,'$1$2').replace(/\s*([\\/\-.])\s*/g,'$1');
+    for(const v of [c1,c2]){
+      if(v===line)continue;
+      const iso2=extractFromText(v);
+      if(iso2){candidates.push({iso:iso2,raw:line,score:scoreDate(iso2,labelled)});return true;}
+    }
+    return false;
+  };
+
+  for(const line of lines){
+    if(MFD_RE.test(line)&&!EXP_RE.test(line))continue;
+    tryLine(line, EXP_RE.test(line));
   }
   if(!candidates.length){
-    // Fallback: join all non-pure-MFD lines and scan the block
     const block=lines.filter(l=>!(MFD_RE.test(l)&&!EXP_RE.test(l))).join(' ');
-    const iso=extractFromText(block);
-    if(iso)candidates.push({iso,raw:block,score:scoreDate(iso,EXP_RE.test(block))});
+    tryLine(block, EXP_RE.test(block));
   }
   if(!candidates.length)return null;
   candidates.sort((a,b)=>b.score-a.score);
