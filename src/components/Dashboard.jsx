@@ -4,13 +4,10 @@ import { productService } from '../services/authService';
 import { checkExpiringProducts } from '../services/notifications';
 import './Dashboard.css';
 
-
-// ── Lazy-loaded tabs (code splitting) ────────────────────────────────────────
-const Scanner    = lazy(() => import('./Scanner'));
-const AddManual  = lazy(() => import('./AddManual'));
+const Scanner     = lazy(() => import('./Scanner'));
+const AddManual   = lazy(() => import('./AddManual'));
 const ProductList = lazy(() => import('./ProductList'));
 
-// ── Stats Card ────────────────────────────────────────────────────────────────
 const StatCard = memo(({ icon, label, value, colorClass, onClick }) => (
   <button className={`stat-card ${colorClass}`} onClick={onClick}>
     <div className="stat-icon"><i className={`fas ${icon}`} /></div>
@@ -21,7 +18,6 @@ const StatCard = memo(({ icon, label, value, colorClass, onClick }) => (
   </button>
 ));
 
-// ── Tab Spinner ───────────────────────────────────────────────────────────────
 const TabSpinner = () => (
   <div className="tab-loading">
     <div className="spinner" />
@@ -29,33 +25,27 @@ const TabSpinner = () => (
   </div>
 );
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
 const Dashboard = ({ user, onLogout }) => {
-  const [activeTab,    setActiveTab]    = useState('scanner');
-  const [products,     setProducts]     = useState([]);
-  const [notifications,setNotifications]= useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [sidebarOpen,  setSidebarOpen]  = useState(false);
+  const [activeTab,     setActiveTab]     = useState('scanner'); // scanner is default
+  const [products,      setProducts]      = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [sidebarOpen,   setSidebarOpen]   = useState(false);
 
-  // ── Stats (memoised, recalculates only when products change) ────────────
   const stats = useMemo(() => {
     const today = new Date();
-    const total = products.length;
-    const expired = products.filter(p => new Date(p.expiryDate) < today).length;
+    const total       = products.length;
+    const expired     = products.filter(p => new Date(p.expiryDate) < today).length;
     const expiringSoon = products.filter(p => {
       const d = Math.ceil((new Date(p.expiryDate) - today) / 86400000);
       return d >= 0 && d <= 7;
     }).length;
-    const safe = total - expired - expiringSoon;
-    return { total, expired, expiringSoon, safe: safe > 0 ? safe : 0 };
+    const safe = Math.max(0, total - expired - expiringSoon);
+    return { total, expired, expiringSoon, safe };
   }, [products]);
 
-  // ── Notifications (UI-only) ──────────────────────────────────────────────
-  useEffect(() => {
-    setNotifications(checkExpiringProducts(products));
-  }, [products]);
+  useEffect(() => { setNotifications(checkExpiringProducts(products)); }, [products]);
 
-  // ── Load products once ───────────────────────────────────────────────────
   const loadProducts = useCallback(async () => {
     try {
       setLoading(true);
@@ -71,22 +61,28 @@ const Dashboard = ({ user, onLogout }) => {
 
   useEffect(() => { loadProducts(); }, [loadProducts]);
 
-  // ── Handlers (stable references) ────────────────────────────────────────
   const handleProductScanned = useCallback(async (product) => {
     try {
       const result = await productService.addProduct(product);
       if (result.product) setProducts(prev => [result.product, ...prev]);
-    } catch (err) {
-      console.error('Add product error:', err);
-    }
+    } catch (err) { console.error('Add product error:', err); }
   }, []);
 
   const handleProductRemove = useCallback(async (productId) => {
     try {
       await productService.deleteProduct(productId);
       setProducts(prev => prev.filter(p => (p._id || p.id) !== productId));
+    } catch (err) { console.error('Delete product error:', err); }
+  }, []);
+
+  const handleProductEdit = useCallback(async (productId, updates) => {
+    try {
+      const result = await productService.editProduct(productId, updates);
+      const updated = result.product || result;
+      setProducts(prev => prev.map(p => (p._id || p.id) === productId ? { ...p, ...updated } : p));
     } catch (err) {
-      console.error('Delete product error:', err);
+      console.error('Edit product error:', err);
+      throw err;
     }
   }, []);
 
@@ -96,9 +92,9 @@ const Dashboard = ({ user, onLogout }) => {
   }, []);
 
   const navItems = [
-    { id: 'scanner',  icon: 'fa-camera',          label: 'Scanner'        },
-    { id: 'manual',   icon: 'fa-pencil-alt',       label: 'Add Manual'     },
-    { id: 'products', icon: 'fa-box-open',         label: `Products (${products.length})` },
+    { id: 'scanner',  icon: 'fa-camera',    label: 'Scanner'                        },
+    { id: 'manual',   icon: 'fa-pencil-alt', label: 'Add Manual'                    },
+    { id: 'products', icon: 'fa-box-open',   label: `Products (${products.length})` },
   ];
 
   return (
@@ -111,10 +107,9 @@ const Dashboard = ({ user, onLogout }) => {
         onMenuClick={() => setSidebarOpen(o => !o)}
       />
 
-      {/* Overlay */}
       <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
 
-      {/* Sidebar */}
+      {/* Sidebar — scanner active by default; logout only here */}
       <aside className="sidebar">
         <div className="sidebar-profile">
           <div className="sidebar-avatar">{user.name?.charAt(0).toUpperCase()}</div>
@@ -149,40 +144,30 @@ const Dashboard = ({ user, onLogout }) => {
         </div>
       </aside>
 
-      {/* Main */}
+      {/* Main — stats only, no tab strip below cards */}
       <main className="dash-main">
-
-        {/* Stats row */}
         <div className="stats-row">
-          <StatCard icon="fa-boxes"               label="Total"         value={stats.total}       colorClass="stat-neutral" onClick={() => switchTab('products')} />
-          <StatCard icon="fa-check-circle"         label="Safe"          value={stats.safe}        colorClass="stat-safe"    onClick={() => switchTab('products')} />
-          <StatCard icon="fa-exclamation-triangle" label="Expiring Soon" value={stats.expiringSoon} colorClass="stat-warn"   onClick={() => switchTab('products')} />
-          <StatCard icon="fa-times-circle"         label="Expired"       value={stats.expired}     colorClass="stat-danger"  onClick={() => switchTab('products')} />
+          <StatCard icon="fa-boxes"               label="Total"    value={stats.total}        colorClass="stat-neutral" onClick={() => switchTab('products')} />
+          <StatCard icon="fa-check-circle"         label="Safe"     value={stats.safe}         colorClass="stat-safe"    onClick={() => switchTab('products')} />
+          <StatCard icon="fa-exclamation-triangle" label="Expiring" value={stats.expiringSoon} colorClass="stat-warn"    onClick={() => switchTab('products')} />
+          <StatCard icon="fa-times-circle"         label="Expired"  value={stats.expired}      colorClass="stat-danger"  onClick={() => switchTab('products')} />
         </div>
 
-        {/* Tab strip */}
-        <div className="tab-strip">
-          {navItems.map(item => (
-            <button
-              key={item.id}
-              className={`tab-btn ${activeTab === item.id ? 'active' : ''}`}
-              onClick={() => switchTab(item.id)}
-            >
-              <i className={`fas ${item.icon}`} />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Tab content */}
+        {/* No tab strip here — navigation is sidebar only */}
         <div className="tab-content">
           <Suspense fallback={<TabSpinner />}>
-            {activeTab === 'scanner'  && <Scanner    onProductScanned={handleProductScanned} />}
-            {activeTab === 'manual'   && <AddManual  onProductAdded={handleProductScanned} />}
-            {activeTab === 'products' && <ProductList products={products} onRemoveProduct={handleProductRemove} loading={loading} />}
+            {activeTab === 'scanner'  && <Scanner   onProductScanned={handleProductScanned} />}
+            {activeTab === 'manual'   && <AddManual onProductAdded={handleProductScanned} />}
+            {activeTab === 'products' && (
+              <ProductList
+                products={products}
+                onRemoveProduct={handleProductRemove}
+                onEditProduct={handleProductEdit}
+                loading={loading}
+              />
+            )}
           </Suspense>
         </div>
-
       </main>
     </div>
   );
