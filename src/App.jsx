@@ -3,13 +3,11 @@ import { ThemeProvider } from './context/ThemeContext';
 import { authService } from './services/authService';
 import './styles/App.css';
 
-// Lazy-loaded pages for code splitting
 const HomePage  = lazy(() => import('./components/Homepage'));
 const Login     = lazy(() => import('./components/Login'));
 const Register  = lazy(() => import('./components/Register'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
 
-// Page-level spinner
 const PageSpinner = () => (
   <div style={{
     minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -22,14 +20,11 @@ const PageSpinner = () => (
   </div>
 );
 
-// ── App ──────────────────────────────────────────────────────────────────────
 const App = () => {
-  // 'home' | 'login' | 'register' | 'dashboard'
   const [page,  setPage]  = useState('home');
   const [user,  setUser]  = useState(null);
   const [ready, setReady] = useState(false);
 
-  // Restore session on load
   useEffect(() => {
     const token = authService.getToken();
     const saved = localStorage.getItem('ft_user');
@@ -57,7 +52,6 @@ const App = () => {
   };
 
   const handleRegisterSuccess = (userData, token) => {
-    // Go to login with pre-filled email after register
     setPage('login');
   };
 
@@ -66,10 +60,30 @@ const App = () => {
   return (
     <ThemeProvider>
       <Suspense fallback={<PageSpinner />}>
-        {page === 'home'      && <HomePage  onLogin={() => setPage('login')} onRegister={() => setPage('register')} />}
-        {page === 'login'     && <Login     onLogin={handleLogin} onSwitchToRegister={() => setPage('register')} prefillEmail={localStorage.getItem('lastRegisteredEmail') || ''} />}
-        {page === 'register'  && <Register  onRegisterSuccess={handleRegisterSuccess} onSwitchToLogin={() => setPage('login')} />}
-        {page === 'dashboard' && user && <Dashboard user={user} onLogout={handleLogout} />}
+        {page === 'home'      && (
+          <HomePage
+            onLogin={() => setPage('login')}
+            onRegister={() => setPage('register')}
+          />
+        )}
+        {page === 'login'     && (
+          <Login
+            onLogin={handleLogin}
+            onSwitchToRegister={() => setPage('register')}
+            onGoHome={() => setPage('home')}
+            prefillEmail={localStorage.getItem('lastRegisteredEmail') || ''}
+          />
+        )}
+        {page === 'register'  && (
+          <Register
+            onRegisterSuccess={handleRegisterSuccess}
+            onSwitchToLogin={() => setPage('login')}
+            onGoHome={() => setPage('home')}
+          />
+        )}
+        {page === 'dashboard' && user && (
+          <Dashboard user={user} onLogout={handleLogout} />
+        )}
       </Suspense>
     </ThemeProvider>
   );
