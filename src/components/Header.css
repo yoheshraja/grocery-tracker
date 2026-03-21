@@ -158,11 +158,25 @@
 
 /* Responsive */
 @media (max-width: 600px) {
-  .user-pill-name { display: none; }
-  .logout-label   { display: none; }
-  .header-logout  { padding: .45rem; width: 36px; height: 36px; border-radius: 50%; }
-  .notif-dropdown { width: 280px; right: -50px; }
+  /* Username now always visible — just truncated */
+  .user-pill-name {
+    display: block;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* logout-label hidden irrelevant since logout is now sidebar-only */
+  .notif-dropdown { width: 280px; right: -40px; }
 }
 @media (max-width: 380px) {
   .app-logo span { display: none; }
 }
+/* ── Dark mode: ensure text & icons always visible ──────────────────── */
+[data-theme="dark"] .notif-dropdown-header { background: var(--bg-card); }
+[data-theme="dark"] .notif-item strong { color: var(--text-primary); }
+[data-theme="dark"] .notif-item span   { color: var(--text-muted); }
+[data-theme="dark"] .user-pill-name    { color: var(--text-primary); }
+[data-theme="dark"] .app-logo         { color: var(--text-primary); }
+[data-theme="dark"] .sidebar-user-info strong { color: var(--text-primary); }
+[data-theme="dark"] .sidebar-user-info small  { color: var(--text-muted); }
