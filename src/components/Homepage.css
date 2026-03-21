@@ -438,3 +438,36 @@
   .hero-ctas { flex-direction: column; }
   .cta-buttons { flex-direction: column; align-items: center; }
 }
+/* ── 5-card features grid (2-2-1 centered) ──────────────────────────── */
+.features-grid--5 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+}
+.features-grid--5 .feature-card:last-child {
+  grid-column: 2;
+}
+@media (max-width: 900px) {
+  .features-grid--5 { grid-template-columns: repeat(2, 1fr); }
+  .features-grid--5 .feature-card:last-child { grid-column: auto; }
+}
+@media (max-width: 600px) {
+  .features-grid--5 { grid-template-columns: 1fr; }
+  .features-grid--5 .feature-card:last-child { grid-column: 1; }
+}
+
+/* ── Dark mode text visibility fixes ────────────────────────────────── */
+[data-theme="dark"] .feature-card h3    { color: var(--text-primary); }
+[data-theme="dark"] .feature-card p     { color: var(--text-secondary); }
+[data-theme="dark"] .step-card h3       { color: var(--text-primary); }
+[data-theme="dark"] .step-card p        { color: var(--text-secondary); }
+[data-theme="dark"] .hero-title         { color: var(--text-primary); }
+[data-theme="dark"] .hero-desc          { color: var(--text-secondary); }
+[data-theme="dark"] .section-title      { color: var(--text-primary); }
+[data-theme="dark"] .section-sub        { color: var(--text-secondary); }
+[data-theme="dark"] .mock-item-name     { color: var(--text-primary); }
+[data-theme="dark"] .alert-text p       { color: var(--text-secondary); }
+[data-theme="dark"] .notif-item strong  { color: var(--text-primary); }
+[data-theme="dark"] .notif-item small   { color: var(--text-muted); }
+[data-theme="dark"] .home-footer p      { color: var(--text-muted); }
+[data-theme="dark"] .home-logo          { color: var(--text-primary); }
