@@ -180,12 +180,57 @@
   .expiry-dot { display:none; }
   .pl-header { flex-direction:column; }
   .pl-count-pills { width:100%; }
-  /* Smaller buttons on mobile — icon only */
-  .action-btn span { display:none; }
-  .action-btn { padding:.5rem .625rem; }
+  /* Keep text visible on mobile, just slightly smaller */
+  .action-btn { padding:.45rem .75rem; font-size:.75rem; }
+  .action-btn span { display:inline; }
 }
 
 @media (max-width: 400px) {
   .cat-chip { font-size:.72rem; padding:.3rem .65rem; }
   .product-emoji { width:36px; height:36px; font-size:1.4rem; }
+}
+/* ── Dark mode text visibility ─────────────────────────────────────── */
+[data-theme="dark"] .product-name         { color: var(--text-primary); }
+[data-theme="dark"] .product-card         { background: var(--bg-card); border-color: var(--border); }
+[data-theme="dark"] .meta-pill            { background: var(--bg-card2); border-color: var(--border); color: var(--text-secondary); }
+[data-theme="dark"] .meta-pill i          { color: var(--accent); }
+[data-theme="dark"] .product-date-row     { color: var(--text-secondary); }
+[data-theme="dark"] .product-date-row i   { color: var(--accent); }
+[data-theme="dark"] .search-box input     { background: var(--bg-input); color: var(--text-primary); border-color: var(--border); }
+[data-theme="dark"] .sort-select          { background: var(--bg-card); color: var(--text-primary); border-color: var(--border); }
+[data-theme="dark"] .cat-chip            { background: var(--bg-card); color: var(--text-secondary); border-color: var(--border); }
+[data-theme="dark"] .cat-chip.active     { background: var(--accent); color: #fff; border-color: var(--accent); }
+[data-theme="dark"] .status-tab          { background: var(--bg-card); color: var(--text-secondary); border-color: var(--border); }
+[data-theme="dark"] .pl-header h2        { color: var(--text-primary); }
+[data-theme="dark"] .pl-header > div > p { color: var(--text-secondary); }
+[data-theme="dark"] .filter-notice       { background: var(--accent-light); color: var(--accent); border-color: var(--border); }
+[data-theme="dark"] .pl-empty           { background: var(--bg-card); border-color: var(--border); }
+[data-theme="dark"] .pl-empty h3        { color: var(--text-primary); }
+[data-theme="dark"] .pl-empty p         { color: var(--text-secondary); }
+[data-theme="dark"] .category-filter-row { background: var(--bg-card2); border-color: var(--border); }
+[data-theme="dark"] .btn-edit  { background: #064e3b; color: #34d399; border-color: #065f46; }
+[data-theme="dark"] .btn-delete { background: #450a0a; color: #f87171; border-color: #7f1d1d; }
+
+/* ── Font Awesome icon visibility ───────────────────────────────────── */
+.product-card i,
+.meta-pill i,
+.product-date-row i,
+.action-btn i,
+.pl-header i,
+.status-tab i,
+.tab-count,
+.search-icon,
+.pl-empty i,
+.filter-notice i { font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", FontAwesome !important; font-weight: 900; }
+
+/* ── Edit/Delete buttons always show text ────────────────────────────── */
+.action-btn span { display: inline !important; }
+
+/* ── Products toggle/accordion fix ──────────────────────────────────── */
+.product-card {
+  transition: all .25s ease !important;
+}
+.product-card:hover { 
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 20px rgba(26,35,50,.1) !important;
 }
