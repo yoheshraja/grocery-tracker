@@ -3,7 +3,7 @@ import { authService } from '../services/authService';
 import ForgotPassword from './ForgotPassword';
 import '../styles/App.css';
 import './Auth.css';
-const Login = ({ onLogin, onSwitchToRegister, prefillEmail = '' }) => {
+const Login = ({ onLogin, onSwitchToRegister, prefillEmail = '', onGoHome }) => {
   const [formData, setFormData] = useState({ 
     email: prefillEmail,
     password: '' 
@@ -103,7 +103,10 @@ const Login = ({ onLogin, onSwitchToRegister, prefillEmail = '' }) => {
   return (
     <div className="auth-form-container">
       <div className="auth-form">
-        <div className="auth-header">
+        <div className="auth-header" style={{position:'relative'}}>
+          <button onClick={onGoHome} style={{position:'absolute',top:'0.75rem',left:'0.75rem',background:'rgba(255,255,255,0.2)',border:'none',borderRadius:'8px',color:'#fff',cursor:'pointer',padding:'0.35rem 0.75rem',fontSize:'0.8rem',fontWeight:600,display:'flex',alignItems:'center',gap:'0.35rem'}} title="Back to Home">
+            <i className="fas fa-arrow-left" /> Home
+          </button>
           <div className="logo-circle">
             <i className="fas fa-leaf"></i>
           </div>
