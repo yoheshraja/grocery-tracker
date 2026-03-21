@@ -3,7 +3,7 @@ import { authService } from '../services/authService';
 import '../styles/App.css';
 import './Auth.css';
 
-const Register = ({ onRegisterSuccess, onSwitchToLogin }) => { 
+const Register = ({ onRegisterSuccess, onSwitchToLogin, onGoHome }) => { 
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -110,7 +110,10 @@ const Register = ({ onRegisterSuccess, onSwitchToLogin }) => {
     return (
       <div className="auth-container">
         <div className="auth-card">
-          <div className="auth-header">
+          <div className="auth-header" style={{position:'relative'}}>
+            <button onClick={onGoHome} style={{position:'absolute',top:'0.75rem',left:'0.75rem',background:'rgba(255,255,255,0.2)',border:'none',borderRadius:'8px',color:'#fff',cursor:'pointer',padding:'0.35rem 0.75rem',fontSize:'0.8rem',fontWeight:600,display:'flex',alignItems:'center',gap:'0.35rem'}} title="Back to Home">
+              <i className="fas fa-arrow-left" /> Home
+            </button>
             <div className="logo-circle">
               <i className="fas fa-leaf"></i>
             </div>
@@ -192,11 +195,14 @@ const Register = ({ onRegisterSuccess, onSwitchToLogin }) => {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <div className="auth-header">
+        <div className="auth-header" style={{position:'relative'}}>
+          <button onClick={onGoHome} style={{position:'absolute',top:'0.75rem',left:'0.75rem',background:'rgba(255,255,255,0.2)',border:'none',borderRadius:'8px',color:'#fff',cursor:'pointer',padding:'0.35rem 0.75rem',fontSize:'0.8rem',fontWeight:600,display:'flex',alignItems:'center',gap:'0.35rem'}} title="Back to Home">
+            <i className="fas fa-arrow-left" /> Home
+          </button>
           <div className="logo-circle">
             <i className="fas fa-leaf"></i>
           </div>
-          <h1>Join ExpireTrack</h1>
+          <h1>Join FreshTrack</h1>
           <p className="subtitle">Track groceries, reduce waste, save money</p>
         </div>
 
