@@ -1,267 +1,68 @@
-/* ── FreshTrack Global Styles ────────────────────────────────────────────────
-   Light theme (default)  →  data-theme="light"  (set on <html>)
-   Dark  theme            →  data-theme="dark"
-   Accent = teal-blue (not all-green)
-   Green  = used ONLY for status "safe / fresh"
-   Red/Orange = expiry warnings
-   ──────────────────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   FRESHTRACK — Global icon & dark mode visibility fixes
+   Add these rules to App.css or a separate globals-fix.css
+   ═══════════════════════════════════════════════════════════════ */
 
-/* ── LIGHT THEME ─────────────────────────────────────────────────────────── */
-:root,
-[data-theme="light"] {
-  /* Brand accent — teal/indigo, NOT pure green */
-  --accent:          #3b6cf6;
-  --accent-dark:     #2451c7;
-  --accent-light:    #eff3ff;
-  --accent-rgb:      59, 108, 246;
-
-  /* Status colours */
-  --status-safe:     #16a34a;
-  --status-safe-bg:  #f0fdf4;
-  --status-warn:     #d97706;
-  --status-warn-bg:  #fffbeb;
-  --status-danger:   #dc2626;
-  --status-danger-bg:#fef2f2;
-
-  /* Surface */
-  --bg-page:         #f4f6fb;
-  --bg-card:         #ffffff;
-  --bg-card2:        #f8fafc;
-  --bg-sidebar:      #ffffff;
-  --bg-header:       #ffffff;
-  --bg-input:        #f8fafc;
-
-  /* Borders */
-  --border:          #e2e8f0;
-  --border-focus:    var(--accent);
-
-  /* Text */
-  --text-primary:    #0f172a;
-  --text-secondary:  #475569;
-  --text-muted:      #94a3b8;
-  --text-on-accent:  #ffffff;
-
-  /* Shadows */
-  --shadow-sm:       0 1px 3px rgba(0,0,0,.08);
-  --shadow-md:       0 4px 16px rgba(0,0,0,.10);
-  --shadow-lg:       0 8px 32px rgba(0,0,0,.12);
-
-  /* Layout */
-  --header-height:   64px;
-  --sidebar-width:   260px;
-  --radius-sm:       8px;
-  --radius-md:       12px;
-  --radius-lg:       18px;
-  --radius-xl:       24px;
-}
-
-/* ── DARK THEME ──────────────────────────────────────────────────────────── */
-[data-theme="dark"] {
-  --accent:          #5b8af9;
-  --accent-dark:     #3b6cf6;
-  --accent-light:    #1e2a4a;
-  --accent-rgb:      91, 138, 249;
-
-  --status-safe:     #34d399;
-  --status-safe-bg:  #064e3b;
-  --status-warn:     #fbbf24;
-  --status-warn-bg:  #451a03;
-  --status-danger:   #f87171;
-  --status-danger-bg:#450a0a;
-
-  --bg-page:         #0f1117;
-  --bg-card:         #1a1f2e;
-  --bg-card2:        #141824;
-  --bg-sidebar:      #141824;
-  --bg-header:       #1a1f2e;
-  --bg-input:        #1e2437;
-
-  --border:          #2d3550;
-  --border-focus:    var(--accent);
-
-  --text-primary:    #f1f5f9;
-  --text-secondary:  #94a3b8;
-  --text-muted:      #475569;
-  --text-on-accent:  #ffffff;
-
-  --shadow-sm:       0 1px 3px rgba(0,0,0,.3);
-  --shadow-md:       0 4px 16px rgba(0,0,0,.4);
-  --shadow-lg:       0 8px 32px rgba(0,0,0,.5);
-}
-
-/* ── RESET & BASE ─────────────────────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-html {
-  scroll-behavior: smooth;
-  font-size: 16px;
-}
-
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg-page);
-  color: var(--text-primary);
-  line-height: 1.6;
-  transition: background 0.3s, color 0.3s;
+/* ── Font Awesome: ensure icons render in all browsers ─────────── */
+.fas, .far, .fab, .fa {
+  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", "FontAwesome" !important;
   -webkit-font-smoothing: antialiased;
+  display: inline-block;
 }
+.fab {
+  font-family: "Font Awesome 6 Brands", "Font Awesome 5 Brands" !important;
+}
+/* Force solid weight for .fas */
+.fas { font-weight: 900 !important; }
+.far { font-weight: 400 !important; }
 
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+/* ── Dark mode: stat cards ──────────────────────────────────────── */
+[data-theme="dark"] .stat-card      { background: var(--bg-card); border-color: var(--border); }
+[data-theme="dark"] .stat-value     { color: var(--text-primary); }
+[data-theme="dark"] .stat-label     { color: var(--text-muted); }
+[data-theme="dark"] .stat-neutral .stat-icon { background: var(--accent-light);     color: var(--accent);        }
+[data-theme="dark"] .stat-safe    .stat-icon { background: var(--status-safe-bg);   color: var(--status-safe);   }
+[data-theme="dark"] .stat-warn    .stat-icon { background: var(--status-warn-bg);   color: var(--status-warn);   }
+[data-theme="dark"] .stat-danger  .stat-icon { background: var(--status-danger-bg); color: var(--status-danger); }
 
-img { max-width: 100%; }
+/* ── Dark mode: sidebar ─────────────────────────────────────────── */
+[data-theme="dark"] .sidebar               { background: var(--bg-sidebar); }
+[data-theme="dark"] .sidebar-nav-btn       { color: var(--text-secondary); }
+[data-theme="dark"] .sidebar-nav-btn:hover { background: var(--bg-card2); color: var(--text-primary); }
+[data-theme="dark"] .sidebar-nav-btn.active { background: var(--accent-light); color: var(--accent); }
+[data-theme="dark"] .sidebar-profile       { border-color: var(--border); }
+[data-theme="dark"] .sidebar-footer        { border-color: var(--border); }
 
-/* ── UTILITY CLASSES ─────────────────────────────────────────────────────── */
-.card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  transition: background .3s, border-color .3s;
-}
+/* ── Dark mode: header ──────────────────────────────────────────── */
+[data-theme="dark"] .app-header         { background: var(--bg-header); border-color: var(--border); }
+[data-theme="dark"] .hamburger-btn      { background: var(--bg-card2); border-color: var(--border); color: var(--text-secondary); }
+[data-theme="dark"] .notif-btn          { background: var(--bg-card2); border-color: var(--border); color: var(--text-secondary); }
+[data-theme="dark"] .user-pill          { background: var(--bg-card2); border-color: var(--border); }
+[data-theme="dark"] .theme-toggle       { background: var(--bg-card2); border-color: var(--border); color: var(--text-secondary); }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: .5rem;
-  padding: .65rem 1.25rem;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: .9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all .2s;
-  font-family: inherit;
-  white-space: nowrap;
-}
-.btn:disabled { opacity: .55; cursor: not-allowed; }
+/* ── Dark mode: scanner ─────────────────────────────────────────── */
+[data-theme="dark"] .sc-wrap .sc-start       { background: var(--bg-card); border-color: var(--border); }
+[data-theme="dark"] .sc-wrap .sc-start h2    { color: var(--text-primary); }
+[data-theme="dark"] .sc-wrap .sc-start > p   { color: var(--text-secondary); }
+[data-theme="dark"] .sc-wrap .sc-hiw-step    { color: var(--text-secondary); }
+[data-theme="dark"] .sc-wrap .sc-confirm-step { background: var(--bg-card); border-color: var(--border); }
+[data-theme="dark"] .sc-wrap .sc-saved-step  { background: var(--bg-card); border-color: var(--border); }
+[data-theme="dark"] .sc-wrap .sc-field label { color: var(--text-secondary); }
+[data-theme="dark"] .sc-wrap .sc-product-card { background: var(--bg-card); border-color: var(--border); }
 
-.btn-primary {
-  background: var(--accent);
-  color: var(--text-on-accent);
-  box-shadow: 0 3px 12px rgba(var(--accent-rgb), .35);
-}
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-dark);
-  box-shadow: 0 5px 18px rgba(var(--accent-rgb), .45);
-  transform: translateY(-1px);
-}
+/* ── Dark mode: AddManual ───────────────────────────────────────── */
+[data-theme="dark"] .am-card      { background: var(--bg-card); border-color: var(--border); }
+[data-theme="dark"] .am-title     { color: var(--text-primary); }
+[data-theme="dark"] .am-label     { color: var(--text-secondary); }
+[data-theme="dark"] .am-saved     { background: var(--bg-card); border-color: var(--border); }
+[data-theme="dark"] .am-saved h3  { color: var(--text-primary); }
+[data-theme="dark"] .am-saved p   { color: var(--text-secondary); }
 
-.btn-secondary {
-  background: var(--bg-card2);
-  color: var(--text-secondary);
-  border: 1.5px solid var(--border);
-}
-.btn-secondary:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
+/* ── Dark mode: tab-loading ─────────────────────────────────────── */
+[data-theme="dark"] .tab-loading { color: var(--text-muted); }
 
-.btn-danger {
-  background: var(--status-danger);
-  color: #fff;
-}
-.btn-danger:hover:not(:disabled) {
-  background: #b91c1c;
-  transform: translateY(-1px);
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1.5px solid var(--border);
-}
-.btn-ghost:hover:not(:disabled) {
-  background: var(--bg-card2);
-  color: var(--text-primary);
-}
-
-/* Form input base */
-.input-field {
-  width: 100%;
-  padding: .75rem 1rem;
-  background: var(--bg-input);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: .95rem;
-  color: var(--text-primary);
-  font-family: inherit;
-  outline: none;
-  transition: border-color .2s, box-shadow .2s;
-}
-.input-field:focus {
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .12);
-  background: var(--bg-card);
-}
-.input-field::placeholder { color: var(--text-muted); }
-.input-field.error { border-color: var(--status-danger); }
-
-/* Validation */
-.field-error {
-  font-size: .78rem;
-  color: var(--status-danger);
-  margin-top: .3rem;
-  display: flex;
-  align-items: center;
-  gap: .3rem;
-}
-.field-success {
-  font-size: .78rem;
-  color: var(--status-safe);
-  margin-top: .3rem;
-}
-
-/* Status badges */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: .3rem;
-  padding: .2rem .65rem;
-  border-radius: 999px;
-  font-size: .75rem;
-  font-weight: 600;
-}
-.badge-safe    { background: var(--status-safe-bg);   color: var(--status-safe);   }
-.badge-warn    { background: var(--status-warn-bg);   color: var(--status-warn);   }
-.badge-danger  { background: var(--status-danger-bg); color: var(--status-danger); }
-.badge-accent  { background: var(--accent-light);     color: var(--accent);        }
-
-/* Loading spinner */
-.spinner {
-  width: 36px; height: 36px;
-  border: 3px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* Theme toggle button */
-.theme-toggle {
-  background: var(--bg-card2);
-  border: 1.5px solid var(--border);
-  color: var(--text-secondary);
-  border-radius: 999px;
-  padding: .4rem .75rem;
-  font-size: .85rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: .4rem;
-  transition: all .2s;
-  font-family: inherit;
-}
-.theme-toggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-/* ── RESPONSIVE HELPERS ──────────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  html { font-size: 15px; }
-}
-@media (max-width: 480px) {
-  html { font-size: 14px; }
+/* ── Card base fix for dark mode ────────────────────────────────── */
+[data-theme="dark"] .card {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
 }
