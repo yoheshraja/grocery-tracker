@@ -27,21 +27,20 @@ const MONTHS = {
 };
 const MRE='JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?';
 
-// FIX 1: Accept dates up to 60 days in the past (recently-expired products
-//         still need to be recorded; strict "future only" was rejecting valid OCR reads)
-// FIX 2: Accept years from 2024 (not 2025) to handle Dec 2024 labels still in use
+// OCR date validation: FUTURE ONLY
+// Manufacture dates are always in the past — any past date from OCR is MFD, not expiry.
+// 2-digit years: 25-39 accepted (2025-2039). Year range: 2025-2040.
 function toISO(yyyy,mm,dd=1){
   let y=parseInt(yyyy,10),m=parseInt(mm,10),d=parseInt(dd,10);
   if(isNaN(y)||isNaN(m)||isNaN(d))return null;
-  // 2-digit year: 24-39 → 2024-2039
-  if(y<100){if(y>=24&&y<=39)y+=2000;else return null;}
-  if(y<2024||y>2040||m<1||m>12||d<1||d>31)return null;
+  // 2-digit year: only 25-39 → 2025-2039 (reject 24 and below = past years)
+  if(y<100){if(y>=25&&y<=39)y+=2000;else return null;}
+  if(y<2025||y>2040||m<1||m>12||d<1||d>31)return null;
   const dt=new Date(y,m-1,d);
   if(isNaN(dt.getTime()))return null;
-  // Allow up to 60 days in the past — rejects manufacture dates (years old)
-  // but accepts recently-expired labels a user is scanning to log
-  const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-60); cutoff.setHours(0,0,0,0);
-  if(dt<cutoff)return null;
+  // STRICT: must be today or in the future — past dates are manufacture/packaging dates
+  const today=new Date(); today.setHours(0,0,0,0);
+  if(dt<today)return null;
   return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 function monthNum(n){return MONTHS[(n||'').toUpperCase().replace(/\.$/,'')]||null;}
@@ -142,10 +141,10 @@ const MFD_RE=/\b(MFD(?:\s*DATE)?|MFG(?:\s*DATE)?|MANUFACTURED|DOM|DATE\s*OF\s*(?
 function scoreDate(iso,labelled){
   const days=(new Date(iso)-new Date())/86400000;
   let s=labelled?10000:0;
-  // Prefer dates in the near future; slightly past dates still acceptable
+  // Only future dates reach here (toISO rejects past)
+  // Prefer nearer future dates (typical food expiry 1-1825 days away)
   if(days>=0&&days<=1825)s+=500;
-  else if(days>1825)s+=50;
-  else if(days>=-60)s+=200; // recently expired: higher than unlabelled future
+  else if(days>1825)s+=50; // very long shelf life (canned goods etc)
   return s+days;
 }
 
@@ -225,8 +224,7 @@ export function formatISO(iso){
   return new Date(iso+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
 }
 
-// FIX 6: parseTypedDate also accepts recently-expired dates (user typing manually)
-// and handles more free-form inputs like "march 2026", "3/26" etc.
+// parseTypedDate: user typing manually — accept today or future only
 export function parseTypedDate(val){
   if(!val?.trim())return null;
   const result=extractExpiryDate(val);
@@ -234,8 +232,8 @@ export function parseTypedDate(val){
   // Native Date parse fallback (handles "2026-03-11", "March 11 2026" etc.)
   const d=new Date(val);
   if(!isNaN(d.getTime())){
-    const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-60);
-    if(d>=cutoff)return d.toISOString().split('T')[0];
+    const today=new Date(); today.setHours(0,0,0,0);
+    if(d>=today)return d.toISOString().split('T')[0];
   }
   return null;
 }
