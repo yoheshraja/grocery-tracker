@@ -3,7 +3,7 @@ import Header from './Header';
 import { productService } from '../services/authService';
 import { checkExpiringProducts } from '../services/notifications';
 import './Dashboard.css';
-import './styles/App.css';
+import '../styles/App.css';
 const Scanner     = lazy(() => import('./Scanner'));
 const AddManual   = lazy(() => import('./AddManual'));
 const ProductList = lazy(() => import('./ProductList'));
