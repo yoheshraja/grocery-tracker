@@ -387,3 +387,147 @@ body {
   transform: translateY(-2px) !important;
   box-shadow: 0 6px 20px rgba(26,35,50,.1) !important;
 }
+
+/* ── Restructured product card layout ─────────────────────────────────────── */
+.product-card {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: .625rem !important;
+  padding: .875rem 1rem !important;
+  background: var(--bg-card) !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--border) !important;
+  border-left: 4px solid var(--border) !important;
+  box-shadow: 0 2px 8px rgba(26,35,50,.04) !important;
+  transition: box-shadow .2s !important;
+}
+.product-card:hover {
+  box-shadow: 0 4px 16px rgba(26,35,50,.1) !important;
+}
+
+/* Top row: emoji + name + badge */
+.pc-top-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: .75rem !important;
+}
+.pc-name-wrap {
+  flex: 1 !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: .3rem !important;
+}
+.product-name {
+  font-size: .95rem !important;
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* Meta pills row — wraps naturally */
+.product-meta {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: .35rem !important;
+  align-items: center !important;
+}
+.meta-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: .3rem !important;
+  padding: .2rem .55rem !important;
+  background: var(--bg-card2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 999px !important;
+  font-size: .75rem !important;
+  color: var(--text-secondary) !important;
+  white-space: nowrap !important;
+}
+.meta-pill i {
+  color: var(--accent) !important;
+  font-size: .7rem !important;
+}
+
+/* Expiry badge */
+.expiry-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: .35rem !important;
+  padding: .25rem .75rem !important;
+  border-radius: 999px !important;
+  font-size: .78rem !important;
+  font-weight: 700 !important;
+  border: 1.5px solid !important;
+  width: fit-content !important;
+}
+
+/* Action buttons row */
+.product-actions {
+  display: flex !important;
+  gap: .5rem !important;
+  padding-top: .35rem !important;
+  border-top: 1px solid var(--border) !important;
+}
+.action-btn {
+  flex: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: .4rem !important;
+  padding: .5rem .875rem !important;
+  border-radius: 9px !important;
+  border: 1.5px solid !important;
+  font-size: .82rem !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all .2s !important;
+  font-family: inherit !important;
+  white-space: nowrap !important;
+}
+.action-btn span { display: inline !important; }
+.btn-edit {
+  border-color: #b2dfdb !important;
+  background: #e0f2f1 !important;
+  color: #00695c !important;
+}
+.btn-edit:hover {
+  background: #00695c !important;
+  color: #fff !important;
+  border-color: #00695c !important;
+}
+.btn-delete {
+  border-color: #ef9a9a !important;
+  background: #ffebee !important;
+  color: #c62828 !important;
+}
+.btn-delete:hover:not(:disabled) {
+  background: #e53935 !important;
+  color: #fff !important;
+  border-color: #e53935 !important;
+}
+.btn-delete:disabled { opacity: .5 !important; cursor: not-allowed !important; }
+
+/* Product emoji box */
+.product-emoji {
+  width: 40px !important;
+  height: 40px !important;
+  font-size: 1.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: var(--bg-card2) !important;
+  border-radius: 10px !important;
+  flex-shrink: 0 !important;
+}
+
+/* Dark mode */
+[data-theme="dark"] .product-card    { background: var(--bg-card) !important; border-color: var(--border) !important; }
+[data-theme="dark"] .product-name    { color: var(--text-primary) !important; }
+[data-theme="dark"] .meta-pill       { background: var(--bg-card2) !important; border-color: var(--border) !important; color: var(--text-secondary) !important; }
+[data-theme="dark"] .meta-pill i     { color: var(--accent) !important; }
+[data-theme="dark"] .product-actions { border-color: var(--border) !important; }
+[data-theme="dark"] .btn-edit        { background: #064e3b !important; color: #34d399 !important; border-color: #065f46 !important; }
+[data-theme="dark"] .btn-delete      { background: #450a0a !important; color: #f87171 !important; border-color: #7f1d1d !important; }
