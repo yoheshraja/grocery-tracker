@@ -251,9 +251,9 @@ const Register = ({ onRegisterSuccess, onSwitchToLogin, onGoHome }) => {
               placeholder=" "
               disabled={loading}
             />
-            <label>Phone Number (Optional)</label>
+            <label>Phone Number </label>
             <i className="fas fa-phone input-icon"></i>
-            <small className="input-hint">For SMS notifications - 10 digits only</small>
+            <small className="input-hint">For SMS notifications</small>
           </div>
 
           <div className="input-group floating-label">
