@@ -419,7 +419,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    user.password = await bcrypt.hash(newPassword, 12);
+    user.password = await bcrypt.hash(newPassword, 10);
     await user.save();
     otpStore.delete(email.toLowerCase().trim());
     res.json({ success: true, message: 'Password reset successfully' });
