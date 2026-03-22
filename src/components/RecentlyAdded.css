@@ -1,0 +1,231 @@
+:root {
+  --primary-bg: #ffffff;
+  --secondary-bg: #f8fafc;
+  --border-color: #e2e8f0;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --accent-color: #3b82f6;
+  
+  /* Status Colors */
+  --color-safe: #22c55e;
+  --color-warning: #f59e0b;
+  --color-urgent: #ef4444;
+  --color-expired: #7f1d1d;
+}
+
+.recent-container {
+  background: var(--primary-bg);
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  max-width: 900px;
+  margin: 2rem auto;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+
+/* Header Styling */
+.recent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.recent-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.recent-header p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.recent-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.last-refresh {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.refresh-btn {
+  background: var(--secondary-bg);
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: #edf2f7;
+  border-color: #cbd5e1;
+}
+
+.refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* List and Items */
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  background: var(--secondary-bg);
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: transform 0.2s, border-color 0.2s;
+  animation: slideIn 0.3s ease-out forwards;
+  opacity: 0;
+}
+
+.recent-item:hover {
+  transform: translateX(4px);
+  border-color: var(--accent-color);
+  background: #fff;
+}
+
+.recent-item-rank {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  width: 25px;
+}
+
+.recent-item-emoji {
+  font-size: 1.75rem;
+  margin-right: 1rem;
+}
+
+.recent-item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-item-name {
+  font-weight: 600;
+  color: var(--text-main);
+  font-size: 1rem;
+}
+
+.recent-item-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.recent-item-meta span {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Expiry Chips */
+.recent-item-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+.expiry-chip {
+  padding: 0.25rem 0.6rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-transform: uppercase;
+}
+
+.chip-safe { background: #dcfce7; color: var(--color-safe); }
+.chip-warning { background: #fef3c7; color: var(--color-warning); }
+.chip-urgent { background: #fee2e2; color: var(--color-urgent); }
+.chip-expired { background: #450a0a; color: #fff; }
+
+.recent-item-date {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Loading Skeletons */
+.skeleton-row {
+  height: 70px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Footer & Empty States */
+.recent-footer {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.recent-empty, .recent-error {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-muted);
+}
+
+.recent-empty i, .recent-error i {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.btn-retry {
+  margin-top: 1rem;
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  padding: 0.5rem 1.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
