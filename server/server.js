@@ -434,9 +434,22 @@ app.delete('/api/products/:id', auth, async (req, res) => {
 });
 
 // Manual trigger for testing (dev only)
-app.post('/api/admin/trigger-notifications', auth, async (req, res) => {
-  await checkAndSendNotifications();
-  res.json({ message:'Notification check triggered' });
+// Manual trigger for testing — accessible directly from browser
+app.get('/api/admin/trigger-notifications', async (req, res) => {
+  try {
+    await checkAndSendNotifications();
+    res.json({ 
+      success: true, 
+      message: 'Notification check triggered successfully',
+      time: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Trigger notifications error:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message 
+    });
+  }
 });
 
 // ── Start server ─────────────────────────────────────────────────────────────
