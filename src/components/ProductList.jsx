@@ -35,59 +35,71 @@ const getStatusInfo = (expiryDate) => {
 };
 
 const ProductCard = memo(({ product, onRemove, onEdit, deletingId }) => {
-  const info      = getStatusInfo(product.expiryDate);
+  const info       = getStatusInfo(product.expiryDate);
   const isDeleting = deletingId === (product._id || product.id);
-  const expired   = differenceInDays(new Date(product.expiryDate), new Date()) < 0;
+  const expired    = differenceInDays(new Date(product.expiryDate), new Date()) < 0;
 
   return (
     <div className="product-card" style={{ borderLeftColor: info.border }}>
-      <div className="expiry-dot" style={{ background: info.dot }} />
-      <div className="product-emoji">
-        {product.image?.startsWith('http')
-          ? <img src={product.image} alt="" style={{width:'100%',height:'100%',objectFit:'contain',borderRadius:8}}/>
-          : (product.image || '📦')}
-      </div>
-      <div className="product-info">
-        <div className="product-name">{product.name}</div>
-        <div className="product-meta">
-          <span className="meta-pill"><i className="fas fa-folder"/>{product.category}</span>
-          {product.brand && product.brand !== 'Unknown' && (
-            <span className="meta-pill"><i className="fas fa-building"/>{product.brand}</span>
-          )}
-          {product.quantity && (
-            <span className="meta-pill"><i className="fas fa-weight"/>{product.quantity}</span>
-          )}
+
+      {/* Top row: emoji + name + badge */}
+      <div className="pc-top-row">
+        <div className="product-emoji">
+          {product.image?.startsWith('http')
+            ? <img src={product.image} alt="" style={{width:'100%',height:'100%',objectFit:'contain',borderRadius:8}}/>
+            : (product.image || '📦')}
         </div>
-        <div className="product-date-row">
-          <i className="fas fa-calendar-alt"/>
-          <span>Expires: <strong>{format(new Date(product.expiryDate), 'd MMM yyyy')}</strong></span>
+        <div className="pc-name-wrap">
+          <div className="product-name">{product.name}</div>
+          <span className="expiry-badge"
+            style={{ color: info.color, background: info.bg, borderColor: info.border }}>
+            {expired
+              ? <i className="fas fa-times-circle"/>
+              : differenceInDays(new Date(product.expiryDate), new Date()) <= 3
+                ? <i className="fas fa-exclamation-triangle"/>
+                : <i className="fas fa-clock"/>}
+            {info.label}
+          </span>
         </div>
       </div>
-      <div className="product-right">
-        <span className="expiry-badge"
-          style={{ color: info.color, background: info.bg, borderColor: info.border }}>
-          {expired
-            ? <i className="fas fa-times-circle"/>
-            : differenceInDays(new Date(product.expiryDate), new Date()) <= 3
-              ? <i className="fas fa-exclamation-triangle"/>
-              : <i className="fas fa-clock"/>}
-          {info.label}
+
+      {/* Meta pills row */}
+      <div className="product-meta">
+        <span className="meta-pill">
+          <i className="fas fa-folder"/> {product.category}
         </span>
-        <div className="product-actions">
-          <button className="action-btn btn-edit" onClick={() => onEdit(product)}>
-            <i className="fas fa-pencil-alt"/><span>Edit</span>
-          </button>
-          <button
-            className="action-btn btn-delete"
-            onClick={() => onRemove(product._id || product.id)}
-            disabled={isDeleting}
-          >
-            {isDeleting
-              ? <><i className="fas fa-spinner fa-spin"/><span>…</span></>
-              : <><i className="fas fa-trash"/><span>Remove</span></>}
-          </button>
-        </div>
+        {product.brand && product.brand !== 'Unknown' && (
+          <span className="meta-pill">
+            <i className="fas fa-building"/> {product.brand}
+          </span>
+        )}
+        {product.quantity && (
+          <span className="meta-pill">
+            <i className="fas fa-weight"/> {product.quantity}
+          </span>
+        )}
+        <span className="meta-pill">
+          <i className="fas fa-calendar-alt"/>
+          {format(new Date(product.expiryDate), 'd MMM yyyy')}
+        </span>
       </div>
+
+      {/* Action buttons */}
+      <div className="product-actions">
+        <button className="action-btn btn-edit" onClick={() => onEdit(product)}>
+          <i className="fas fa-pencil-alt"/> <span>Edit</span>
+        </button>
+        <button
+          className="action-btn btn-delete"
+          onClick={() => onRemove(product._id || product.id)}
+          disabled={isDeleting}
+        >
+          {isDeleting
+            ? <><i className="fas fa-spinner fa-spin"/> <span>Removing…</span></>
+            : <><i className="fas fa-trash"/> <span>Remove</span></>}
+        </button>
+      </div>
+
     </div>
   );
 });
