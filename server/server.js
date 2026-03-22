@@ -15,13 +15,28 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fresh-track-secret-key';
 
 // ── Nodemailer transporter ──────────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,          // STARTTLS on port 587 — more reliable than service:'gmail'
+  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+  connectionTimeout: 10000,  // 10s to connect
+  greetingTimeout:   10000,  // 10s for greeting
+  socketTimeout:     15000,  // 15s per socket operation
 });
 transporter.verify((err) => {
   if (err) console.error('❌ Email transporter error:', err.message);
   else     console.log('✅ Email transporter ready');
 });
+
+// Helper: send mail with a hard 15-second timeout
+function sendMailWithTimeout(options) {
+  return Promise.race([
+    transporter.sendMail(options),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Email timeout after 15s')), 15000)
+    ),
+  ]);
+}
 
 // ── Twilio SMS (optional — only if credentials present) ────────────────────
 let twilioClient = null;
@@ -336,23 +351,31 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     if (!user)  return res.status(404).json({ success: false, message: 'No account found with this email' });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    otpStore.set(email.toLowerCase().trim(), { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
+    otpStore.set(email.toLowerCase().trim(), { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
 
-    await transporter.sendMail({
+    // Respond immediately — don't wait for email to send
+    // This prevents "loading forever" if Gmail is slow
+    res.json({ success: true, message: 'OTP sent to your email' });
+
+    // Send email in background (non-blocking)
+    sendMailWithTimeout({
       from: `"FreshTrack" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Your Password Reset OTP — FreshTrack',
       html: `<div style="font-family:Arial,sans-serif;max-width:500px;padding:20px;">
         <h2 style="color:#3b6cf6;">Password Reset OTP</h2>
-        <p>Use the code below to reset your FreshTrack password. It is valid for <strong>5 minutes</strong>.</p>
+        <p>Use the code below to reset your FreshTrack password. It is valid for <strong>10 minutes</strong>.</p>
         <div style="background:#f4f6fb;padding:24px;text-align:center;border-radius:12px;margin:20px 0;">
           <h1 style="letter-spacing:12px;color:#0f172a;margin:0;">${otp}</h1>
         </div>
         <p style="color:#94a3b8;font-size:13px;">If you didn't request this, please ignore this email.</p>
       </div>`,
+    }).then(() => {
+      console.log(`📧 OTP email sent → ${email}`);
+    }).catch(err => {
+      console.error(`❌ OTP email failed → ${email}:`, err.message);
     });
 
-    res.json({ success: true, message: 'OTP sent to your email' });
   } catch (err) {
     console.error('Forgot-password error:', err);
     res.status(500).json({ success: false, message: 'Failed to send OTP' });
@@ -383,9 +406,13 @@ app.post('/api/auth/resend-otp', async (req, res) => {
     if (!user)  return res.status(404).json({ success: false, message: 'Account not found' });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    otpStore.set(email.toLowerCase().trim(), { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
+    otpStore.set(email.toLowerCase().trim(), { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
 
-    await transporter.sendMail({
+    // Respond immediately
+    res.json({ success: true, message: 'OTP resent' });
+
+    // Send email in background
+    sendMailWithTimeout({
       from: `"FreshTrack" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'New OTP — FreshTrack',
@@ -393,11 +420,15 @@ app.post('/api/auth/resend-otp', async (req, res) => {
         <h2 style="color:#3b6cf6;">Your New OTP</h2>
         <div style="background:#f4f6fb;padding:24px;text-align:center;border-radius:12px;margin:16px 0;">
           <h1 style="letter-spacing:12px;color:#0f172a;margin:0;">${otp}</h1>
-          <p style="color:#64748b;margin-top:8px;">Valid for 5 minutes</p>
+          <p style="color:#64748b;margin-top:8px;">Valid for 10 minutes</p>
         </div>
       </div>`,
+    }).then(() => {
+      console.log(`📧 Resend OTP email sent → ${email}`);
+    }).catch(err => {
+      console.error(`❌ Resend OTP email failed → ${email}:`, err.message);
     });
-    res.json({ success: true, message: 'OTP resent' });
+
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to resend OTP' });
   }
