@@ -128,17 +128,16 @@ const ForgotPassword = ({ onBackToLogin, onSuccess }) => {
     try {
       const result = await authService.resetPassword(email, otp, newPassword);
       if (result.success) {
-        setSuccess('Password reset successfully! Redirecting to login...');
-        setTimeout(() => {
-          onSuccess?.(email);
-          onBackToLogin?.();
-        }, 2000);
+        setSuccess('Password reset! Redirecting to login…');
+        // Redirect immediately — no setTimeout delay
+        onSuccess?.(email);
+        onBackToLogin?.();
       } else {
         setError(result.message || 'Failed to reset password');
+        setLoading(false);
       }
     } catch (err) {
       setError(err.message || 'Network error. Please try again.');
-    } finally {
       setLoading(false);
     }
   };
