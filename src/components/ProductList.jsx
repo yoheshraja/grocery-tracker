@@ -38,71 +38,73 @@ const ProductCard = memo(({ product, onRemove, onEdit, deletingId }) => {
   const info       = getStatusInfo(product.expiryDate);
   const isDeleting = deletingId === (product._id || product.id);
   const expired    = differenceInDays(new Date(product.expiryDate), new Date()) < 0;
+  const daysLeft   = differenceInDays(new Date(product.expiryDate), new Date());
 
   return (
-    <div className="product-card" style={{ borderLeftColor: info.border }}>
+    <div className="pc2-card" style={{ borderLeftColor: info.border }}>
 
-      {/* Top row: emoji + name + badge */}
-      <div className="pc-top-row">
-        <div className="product-emoji">
+      {/* ── Header: image + name + badge ── */}
+      <div className="pc2-header">
+        <div className="pc2-img">
           {product.image?.startsWith('http')
-            ? <img src={product.image} alt="" style={{width:'100%',height:'100%',objectFit:'contain',borderRadius:8}}/>
-            : (product.image || '📦')}
+            ? <img src={product.image} alt="" />
+            : <span>{product.image || '📦'}</span>}
         </div>
-        <div className="pc-name-wrap">
-          <div className="product-name">{product.name}</div>
-          <span className="expiry-badge"
+        <div className="pc2-title">
+          <p className="pc2-name" title={product.name}>{product.name}</p>
+          <span className="pc2-badge"
             style={{ color: info.color, background: info.bg, borderColor: info.border }}>
             {expired
-              ? <i className="fas fa-times-circle"/>
-              : differenceInDays(new Date(product.expiryDate), new Date()) <= 3
-                ? <i className="fas fa-exclamation-triangle"/>
-                : <i className="fas fa-clock"/>}
+              ? <i className="fas fa-times-circle" />
+              : daysLeft <= 3
+                ? <i className="fas fa-exclamation-triangle" />
+                : <i className="fas fa-clock" />}
             {info.label}
           </span>
         </div>
       </div>
 
-      {/* Meta pills row */}
-      <div className="product-meta">
-        <span className="meta-pill">
-          <i className="fas fa-folder"/> {product.category}
+      {/* ── Meta chips ── */}
+      <div className="pc2-meta">
+        <span className="pc2-chip">
+          <i className="fas fa-tag" />{product.category}
         </span>
         {product.brand && product.brand !== 'Unknown' && (
-          <span className="meta-pill">
-            <i className="fas fa-building"/> {product.brand}
+          <span className="pc2-chip pc2-chip--brand">
+            <i className="fas fa-store" />{product.brand}
           </span>
         )}
         {product.quantity && (
-          <span className="meta-pill">
-            <i className="fas fa-weight"/> {product.quantity}
+          <span className="pc2-chip">
+            <i className="fas fa-balance-scale" />{product.quantity}
           </span>
         )}
-        <span className="meta-pill">
-          <i className="fas fa-calendar-alt"/>
+        <span className="pc2-chip pc2-chip--date">
+          <i className="fas fa-calendar-alt" />
           {format(new Date(product.expiryDate), 'd MMM yyyy')}
         </span>
       </div>
 
-      {/* Action buttons */}
-      <div className="product-actions">
-        <button className="action-btn btn-edit" onClick={() => onEdit(product)}>
-          <i className="fas fa-pencil-alt"/> <span>Edit</span>
+      {/* ── Actions ── */}
+      <div className="pc2-actions">
+        <button className="pc2-btn pc2-edit" onClick={() => onEdit(product)}>
+          <i className="fas fa-pencil-alt" /> Edit
         </button>
         <button
-          className="action-btn btn-delete"
+          className="pc2-btn pc2-del"
           onClick={() => onRemove(product._id || product.id)}
           disabled={isDeleting}
         >
           {isDeleting
-            ? <><i className="fas fa-spinner fa-spin"/> <span>Removing…</span></>
-            : <><i className="fas fa-trash"/> <span>Remove</span></>}
+            ? <><i className="fas fa-spinner fa-spin" /> Removing…</>
+            : <><i className="fas fa-trash" /> Remove</>}
         </button>
       </div>
 
     </div>
   );
 });
+
 
 const STATUS_TABS = [
   { id:'all',           label:'All',          icon:'fa-boxes',               cls:'tab-all'            },
