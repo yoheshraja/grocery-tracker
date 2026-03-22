@@ -3,19 +3,20 @@ import Header from './Header';
 import { productService } from '../services/authService';
 import { checkExpiringProducts } from '../services/notifications';
 import './Dashboard.css';
-import '../styles/App.css';
+
 const Scanner     = lazy(() => import('./Scanner'));
 const AddManual   = lazy(() => import('./AddManual'));
 const ProductList = lazy(() => import('./ProductList'));
 
-const StatCard = memo(({ icon, label, value, colorClass, onClick }) => (
-  <button className={`stat-card ${colorClass}`} onClick={onClick}>
+// Static display card — no click, no hover effect
+const StatCard = memo(({ icon, label, value, colorClass }) => (
+  <div className={`stat-card ${colorClass}`}>
     <div className="stat-icon"><i className={`fas ${icon}`} /></div>
     <div className="stat-body">
       <div className="stat-value">{value}</div>
       <div className="stat-label">{label}</div>
     </div>
-  </button>
+  </div>
 ));
 
 const TabSpinner = () => (
@@ -147,10 +148,10 @@ const Dashboard = ({ user, onLogout }) => {
       {/* Main — stats only, no tab strip below cards */}
       <main className="dash-main">
         <div className="stats-row">
-          <StatCard icon="fa-boxes"               label="Total"    value={stats.total}        colorClass="stat-neutral" onClick={() => switchTab('products')} />
-          <StatCard icon="fa-check-circle"         label="Safe"     value={stats.safe}         colorClass="stat-safe"    onClick={() => switchTab('products')} />
-          <StatCard icon="fa-exclamation-triangle" label="Expiring" value={stats.expiringSoon} colorClass="stat-warn"    onClick={() => switchTab('products')} />
-          <StatCard icon="fa-times-circle"         label="Expired"  value={stats.expired}      colorClass="stat-danger"  onClick={() => switchTab('products')} />
+          <StatCard icon="fa-boxes"               label="Total"    value={stats.total}        colorClass="stat-neutral" />
+          <StatCard icon="fa-check-circle"         label="Safe"     value={stats.safe}         colorClass="stat-safe"    />
+          <StatCard icon="fa-exclamation-triangle" label="Expiring" value={stats.expiringSoon} colorClass="stat-warn"    />
+          <StatCard icon="fa-times-circle"         label="Expired"  value={stats.expired}      colorClass="stat-danger"  />
         </div>
 
         {/* No tab strip here — navigation is sidebar only */}
