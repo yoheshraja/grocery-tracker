@@ -23,7 +23,7 @@ transporter.verify((err) => {
   else     console.log('✅ Email transporter ready');
 });
 
-// ── Twilio SMS (optional — only if credentials present) ───────────────────
+// ── Twilio SMS (optional — only if credentials present) ────────────────────
 let twilioClient = null;
 if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_ACCOUNT_SID !== 'your_twilio_sid') {
   try {
@@ -33,19 +33,40 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_ACCOUNT_SID !== 'your_t
   } catch { console.warn('⚠️  Twilio not installed — SMS disabled'); }
 }
 
-// ── Middleware ──────────────────────────────────────────────────────────────
+// ── Body parser (before routes) ────────────────────────────────────────────
+app.use(express.json());
+
+// ── Admin routes — placed BEFORE cors() so they are never blocked ──────────
+app.get('/',       (_, res) => res.json({ status:'OK', service:'FreshTrack API v2.0' }));
+app.get('/health', (_, res) => res.json({ status:'Healthy', db: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected' }));
+
+app.get('/api/admin/trigger-notifications', async (req, res) => {
+  try {
+    await checkAndSendNotifications();
+    res.json({
+      success: true,
+      message: 'Notification check triggered successfully',
+      time: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Trigger notifications error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── CORS middleware (after admin routes) ───────────────────────────────────
 app.use(cors({
   origin: [
-    "https://freshtrack-frontend.onrender.com"
+    "https://freshtrack-frontend.onrender.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
   ],
   credentials: true,
   methods: ["GET","POST","PUT","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type","Authorization"]
 }));
 
-app.use(express.json());
-
-// ── MongoDB ──────────────────────────────────────────────────────────────────
+// ── MongoDB ─────────────────────────────────────────────────────────────────
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => { console.log('✅ MongoDB connected:', mongoose.connection.name); startServer(); })
   .catch(err => {
@@ -55,7 +76,7 @@ mongoose.connect(process.env.MONGODB_URI)
       .catch(e2 => { console.error('❌ Local MongoDB failed:', e2.message); startServer(); });
   });
 
-// ── Schemas ──────────────────────────────────────────────────────────────────
+// ── Schemas ─────────────────────────────────────────────────────────────────
 const userSchema = new mongoose.Schema({
   name:     { type: String, required: true },
   email:    { type: String, required: true, unique: true },
@@ -64,14 +85,14 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const productSchema = new mongoose.Schema({
-  userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  barcode:  { type: String, required: true },
-  name:     { type: String, required: true },
-  category: { type: String, required: true },
-  brand:    { type: String, default: 'Unknown' },
-  image:    { type: String, default: '📦' },
-  expiryDate:{ type: Date, required: true },
-  scanDate: { type: Date, default: Date.now },
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  barcode:   { type: String, required: true },
+  name:      { type: String, required: true },
+  category:  { type: String, required: true },
+  brand:     { type: String, default: 'Unknown' },
+  image:     { type: String, default: '📦' },
+  expiryDate:{ type: Date,   required: true },
+  scanDate:  { type: Date,   default: Date.now },
   notificationsSent: {
     sevenDays: { type: Boolean, default: false },
     threeDays: { type: Boolean, default: false },
@@ -88,9 +109,9 @@ const otpStore = new Map();
 
 // ── Email helper ─────────────────────────────────────────────────────────────
 async function sendExpiryEmail(to, productName, expiryDateStr, type) {
-  const colours   = { '7 days':'#2563eb','3 days':'#d97706','1 day':'#dc2626','today':'#7c3aed' };
-  const emojis    = { '7 days':'🟡','3 days':'🟠','1 day':'🔴','today':'🚨' };
-  const urgencies = { '7 days':'in 7 days','3 days':'in 3 days','1 day':'tomorrow','today':'TODAY' };
+  const colours   = { '7 days':'#2563eb', '3 days':'#d97706', '1 day':'#dc2626', 'today':'#7c3aed' };
+  const emojis    = { '7 days':'🟡',      '3 days':'🟠',      '1 day':'🔴',      'today':'🚨'      };
+  const urgencies = { '7 days':'in 7 days','3 days':'in 3 days','1 day':'tomorrow','today':'TODAY'  };
 
   const col = colours[type] || '#2563eb';
   const em  = emojis[type]  || '⚠️';
@@ -140,7 +161,7 @@ async function sendExpiryEmail(to, productName, expiryDateStr, type) {
   console.log(`📧 Email sent → ${to}: ${subject}`);
 }
 
-// ── SMS helper ──────────────────────────────────────────────────────────────
+// ── SMS helper ───────────────────────────────────────────────────────────────
 async function sendExpirySMS(phone, productName, expiryDateStr, type) {
   if (!twilioClient) return;
   const urgencies = { '7 days':'in 7 days','3 days':'in 3 days','1 day':'tomorrow','today':'TODAY' };
@@ -184,28 +205,25 @@ async function checkAndSendNotifications() {
       const daysLeft = Math.round((expiry - today) / 86400000);
 
       let type = null, field = null;
-      if (daysLeft === 7 && !product.notificationsSent.sevenDays) { type='7 days'; field='sevenDays'; }
-      else if (daysLeft === 3 && !product.notificationsSent.threeDays) { type='3 days'; field='threeDays'; }
-      else if (daysLeft === 1 && !product.notificationsSent.oneDay)    { type='1 day'; field='oneDay'; }
-      else if (daysLeft === 0 && !product.notificationsSent.expired)   { type='today'; field='expired'; }
+      if      (daysLeft === 7 && !product.notificationsSent.sevenDays) { type = '7 days'; field = 'sevenDays'; }
+      else if (daysLeft === 3 && !product.notificationsSent.threeDays) { type = '3 days'; field = 'threeDays'; }
+      else if (daysLeft === 1 && !product.notificationsSent.oneDay)    { type = '1 day';  field = 'oneDay';    }
+      else if (daysLeft === 0 && !product.notificationsSent.expired)   { type = 'today';  field = 'expired';   }
 
       if (!type) continue;
 
-      const user         = product.userId;
-      const expiryStr    = expiry.toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
+      const user      = product.userId;
+      const expiryStr = expiry.toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
 
-      // Send email
       if (user.email) {
         try { await sendExpiryEmail(user.email, product.name, expiryStr, type); }
         catch (e) { console.error('Email failed:', e.message); }
       }
 
-      // Send SMS (if phone exists and Twilio configured)
       if (user.phone) {
         await sendExpirySMS(user.phone, product.name, expiryStr, type);
       }
 
-      // Mark notification sent — prevents duplicates
       product.notificationsSent[field] = true;
       await product.save();
       sent++;
@@ -232,29 +250,35 @@ const auth = (req, res, next) => {
   });
 };
 
-// ── Routes ───────────────────────────────────────────────────────────────────
-app.get('/',       (_, res) => res.json({ status:'OK', service:'FreshTrack API v2.0' }));
-app.get('/health', (_, res) => res.json({ status:'Healthy', db: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected' }));
+// ── Auth routes ──────────────────────────────────────────────────────────────
 
 // Register
 app.post('/api/register', async (req, res) => {
   try {
     const { name, email, phone, password } = req.body;
-    if (!name?.trim())     return res.status(400).json({ message: 'Name is required' });
-    if (!email?.trim())    return res.status(400).json({ message: 'Email is required' });
+    if (!name?.trim())       return res.status(400).json({ message: 'Name is required' });
+    if (!email?.trim())      return res.status(400).json({ message: 'Email is required' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Invalid email format' });
-    if (!password)         return res.status(400).json({ message: 'Password is required' });
+    if (!password)           return res.status(400).json({ message: 'Password is required' });
     if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' });
 
     const existing = await User.findOne({ email: email.toLowerCase().trim() });
-    if (existing)  return res.status(400).json({ message: 'An account with this email already exists' });
+    if (existing) return res.status(400).json({ message: 'An account with this email already exists' });
 
     const hashed = await bcrypt.hash(password, 12);
-    const user   = await new User({ name: name.trim(), email: email.toLowerCase().trim(), phone: phone?.trim()||'', password: hashed }).save();
+    const user   = await new User({
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      phone: phone?.trim() || '',
+      password: hashed,
+    }).save();
 
-    const token = jwt.sign({ userId: user._id, email: user.email, phone: user.phone }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign(
+      { userId: user._id, email: user.email, phone: user.phone },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
 
-    // Welcome email (non-blocking)
     transporter.sendMail({
       from: `"FreshTrack" <${process.env.EMAIL_USER}>`,
       to: user.email,
@@ -266,7 +290,11 @@ app.post('/api/register', async (req, res) => {
       </div>`,
     }).catch(e => console.error('Welcome email error:', e.message));
 
-    res.status(201).json({ message: 'Registration successful!', token, user: { id: user._id, name: user.name, email: user.email, phone: user.phone } });
+    res.status(201).json({
+      message: 'Registration successful!',
+      token,
+      user: { id: user._id, name: user.name, email: user.email, phone: user.phone },
+    });
   } catch (err) {
     console.error('Register error:', err);
     res.status(500).json({ message: 'Server error during registration' });
@@ -283,8 +311,16 @@ app.post('/api/login', async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password)))
       return res.status(400).json({ message: 'Invalid email or password' });
 
-    const token = jwt.sign({ userId: user._id, email: user.email, phone: user.phone }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ message: 'Login successful!', token, user: { id: user._id, name: user.name, email: user.email, phone: user.phone } });
+    const token = jwt.sign(
+      { userId: user._id, email: user.email, phone: user.phone },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+    res.json({
+      message: 'Login successful!',
+      token,
+      user: { id: user._id, name: user.name, email: user.email, phone: user.phone },
+    });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ message: 'Server error during login' });
@@ -295,12 +331,12 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ success:false, message:'Email is required' });
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
     const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user)  return res.status(404).json({ success:false, message:'No account found with this email' });
+    if (!user)  return res.status(404).json({ success: false, message: 'No account found with this email' });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    otpStore.set(email.toLowerCase().trim(), { otp, expiresAt: Date.now() + 5*60*1000 });
+    otpStore.set(email.toLowerCase().trim(), { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
 
     await transporter.sendMail({
       from: `"FreshTrack" <${process.env.EMAIL_USER}>`,
@@ -316,48 +352,54 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       </div>`,
     });
 
-    res.json({ success:true, message:'OTP sent to your email' });
+    res.json({ success: true, message: 'OTP sent to your email' });
   } catch (err) {
     console.error('Forgot-password error:', err);
-    res.status(500).json({ success:false, message:'Failed to send OTP' });
+    res.status(500).json({ success: false, message: 'Failed to send OTP' });
   }
 });
 
 // Verify OTP
 app.post('/api/auth/verify-otp', (req, res) => {
   const { email, otp } = req.body;
-  if (!email || !otp) return res.status(400).json({ success:false, message:'Email and OTP required' });
+  if (!email || !otp) return res.status(400).json({ success: false, message: 'Email and OTP required' });
   const data = otpStore.get(email.toLowerCase().trim());
-  if (!data || Date.now() > data.expiresAt) { otpStore.delete(email.toLowerCase().trim()); return res.status(400).json({ success:false, message:'OTP expired' }); }
-  if (data.otp !== otp) return res.status(400).json({ success:false, message:'Invalid OTP' });
+  if (!data || Date.now() > data.expiresAt) {
+    otpStore.delete(email.toLowerCase().trim());
+    return res.status(400).json({ success: false, message: 'OTP expired' });
+  }
+  if (data.otp !== otp) return res.status(400).json({ success: false, message: 'Invalid OTP' });
   data.verified = true;
   otpStore.set(email.toLowerCase().trim(), data);
-  res.json({ success:true, message:'OTP verified' });
+  res.json({ success: true, message: 'OTP verified' });
 });
 
 // Resend OTP
 app.post('/api/auth/resend-otp', async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ success:false, message:'Email required' });
+    if (!email) return res.status(400).json({ success: false, message: 'Email required' });
     const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user)  return res.status(404).json({ success:false, message:'Account not found' });
+    if (!user)  return res.status(404).json({ success: false, message: 'Account not found' });
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    otpStore.set(email.toLowerCase().trim(), { otp, expiresAt: Date.now() + 5*60*1000 });
+    otpStore.set(email.toLowerCase().trim(), { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
+
     await transporter.sendMail({
-      from:`"FreshTrack" <${process.env.EMAIL_USER}>`,
-      to:email,
-      subject:'New OTP — FreshTrack',
-      html:`<div style="font-family:Arial,sans-serif;padding:20px;max-width:500px;">
+      from: `"FreshTrack" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'New OTP — FreshTrack',
+      html: `<div style="font-family:Arial,sans-serif;padding:20px;max-width:500px;">
         <h2 style="color:#3b6cf6;">Your New OTP</h2>
         <div style="background:#f4f6fb;padding:24px;text-align:center;border-radius:12px;margin:16px 0;">
           <h1 style="letter-spacing:12px;color:#0f172a;margin:0;">${otp}</h1>
           <p style="color:#64748b;margin-top:8px;">Valid for 5 minutes</p>
-        </div></div>`,
+        </div>
+      </div>`,
     });
-    res.json({ success:true, message:'OTP resent' });
+    res.json({ success: true, message: 'OTP resent' });
   } catch (err) {
-    res.status(500).json({ success:false, message:'Failed to resend OTP' });
+    res.status(500).json({ success: false, message: 'Failed to resend OTP' });
   }
 });
 
@@ -365,51 +407,60 @@ app.post('/api/auth/resend-otp', async (req, res) => {
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
-    if (!email || !otp || !newPassword) return res.status(400).json({ success:false, message:'All fields required' });
-    if (newPassword.length < 6) return res.status(400).json({ success:false, message:'Password must be at least 6 characters' });
+    if (!email || !otp || !newPassword)
+      return res.status(400).json({ success: false, message: 'All fields required' });
+    if (newPassword.length < 6)
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+
     const data = otpStore.get(email.toLowerCase().trim());
     if (!data || !data.verified || data.otp !== otp || Date.now() > data.expiresAt)
-      return res.status(400).json({ success:false, message:'Invalid or expired OTP' });
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+
     const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user) return res.status(404).json({ success:false, message:'User not found' });
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
     user.password = await bcrypt.hash(newPassword, 12);
     await user.save();
     otpStore.delete(email.toLowerCase().trim());
-    res.json({ success:true, message:'Password reset successfully' });
+    res.json({ success: true, message: 'Password reset successfully' });
   } catch (err) {
-    res.status(500).json({ success:false, message:'Server error' });
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
 // ── Product routes ───────────────────────────────────────────────────────────
+
 app.get('/api/products', auth, async (req, res) => {
   try {
     const products = await Product.find({ userId: req.user.userId }).sort({ expiryDate: 1 });
     res.json(products);
-  } catch (err) { res.status(500).json({ message:'Server error' }); }
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
 app.post('/api/products', auth, async (req, res) => {
   try {
     const { name, barcode, category, brand, image, expiryDate, quantity } = req.body;
-    if (!name?.trim())  return res.status(400).json({ message:'Product name is required' });
-    if (!expiryDate)    return res.status(400).json({ message:'Expiry date is required' });
+    if (!name?.trim()) return res.status(400).json({ message: 'Product name is required' });
+    if (!expiryDate)   return res.status(400).json({ message: 'Expiry date is required' });
 
     const expDate = new Date(expiryDate);
-    if (isNaN(expDate.getTime())) return res.status(400).json({ message:'Invalid expiry date' });
+    if (isNaN(expDate.getTime())) return res.status(400).json({ message: 'Invalid expiry date' });
 
     const product = await new Product({
-      userId: req.user.userId,
-      barcode: barcode || `manual_${Date.now()}`,
-      name: name.trim(), category: category || 'Other',
-      brand: brand || 'Unknown', image: image || '📦',
-      expiryDate: expDate, quantity: quantity || '',
+      userId:    req.user.userId,
+      barcode:   barcode || `manual_${Date.now()}`,
+      name:      name.trim(),
+      category:  category || 'Other',
+      brand:     brand || 'Unknown',
+      image:     image || '📦',
+      expiryDate: expDate,
+      quantity:  quantity || '',
     }).save();
 
-    res.status(201).json({ message:'Product added successfully!', product });
+    res.status(201).json({ message: 'Product added successfully!', product });
   } catch (err) {
     console.error('Add product error:', err);
-    res.status(500).json({ message:'Server error' });
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -420,36 +471,17 @@ app.put('/api/products/:id', auth, async (req, res) => {
       req.body,
       { new: true }
     );
-    if (!product) return res.status(404).json({ message:'Product not found' });
-    res.json({ message:'Product updated', product });
-  } catch (err) { res.status(500).json({ message:'Server error' }); }
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    res.json({ message: 'Product updated', product });
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
 app.delete('/api/products/:id', auth, async (req, res) => {
   try {
     const product = await Product.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
-    if (!product) return res.status(404).json({ message:'Product not found' });
-    res.json({ message:'Product deleted' });
-  } catch (err) { res.status(500).json({ message:'Server error' }); }
-});
-
-// Manual trigger for testing (dev only)
-// Manual trigger for testing — accessible directly from browser
-app.get('/api/admin/trigger-notifications', async (req, res) => {
-  try {
-    await checkAndSendNotifications();
-    res.json({ 
-      success: true, 
-      message: 'Notification check triggered successfully',
-      time: new Date().toISOString()
-    });
-  } catch (err) {
-    console.error('Trigger notifications error:', err);
-    res.status(500).json({ 
-      success: false, 
-      error: err.message 
-    });
-  }
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    res.json({ message: 'Product deleted' });
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // ── Start server ─────────────────────────────────────────────────────────────
