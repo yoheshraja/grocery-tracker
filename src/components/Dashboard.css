@@ -1,5 +1,162 @@
-/* Dashboard.css */
+/* ═══════════════════════════════════════════════════════════════
+   Dashboard.css — CSS variables embedded so refresh works correctly.
+   On direct load / refresh, App.css may not have run yet — these
+   :root definitions ensure all var() calls resolve immediately.
+   ═══════════════════════════════════════════════════════════════ */
 
+/* ── CSS Variables — self-contained, works without App.css ── */
+:root,
+[data-theme="light"] {
+  --accent:           #3b6cf6;
+  --accent-dark:      #2451c7;
+  --accent-light:     #eff3ff;
+  --accent-rgb:       59, 108, 246;
+  --status-safe:      #16a34a;
+  --status-safe-bg:   #f0fdf4;
+  --status-warn:      #d97706;
+  --status-warn-bg:   #fffbeb;
+  --status-danger:    #dc2626;
+  --status-danger-bg: #fef2f2;
+  --bg-page:          #f4f6fb;
+  --bg-card:          #ffffff;
+  --bg-card2:         #f8fafc;
+  --bg-sidebar:       #ffffff;
+  --bg-header:        #ffffff;
+  --bg-input:         #f8fafc;
+  --border:           #e2e8f0;
+  --text-primary:     #0f172a;
+  --text-secondary:   #475569;
+  --text-muted:       #94a3b8;
+  --shadow-sm:        0 1px 3px rgba(0,0,0,.08);
+  --shadow-md:        0 4px 16px rgba(0,0,0,.10);
+  --shadow-lg:        0 8px 32px rgba(0,0,0,.12);
+  --radius-sm:        8px;
+  --radius-md:        12px;
+  --radius-lg:        18px;
+  --radius-xl:        24px;
+  --header-height:    64px;
+  --sidebar-width:    260px;
+}
+[data-theme="dark"] {
+  --accent:           #5b8af9;
+  --accent-dark:      #3b6cf6;
+  --accent-light:     #1e2a4a;
+  --accent-rgb:       91, 138, 249;
+  --status-safe:      #34d399;
+  --status-safe-bg:   #064e3b;
+  --status-warn:      #fbbf24;
+  --status-warn-bg:   #451a03;
+  --status-danger:    #f87171;
+  --status-danger-bg: #450a0a;
+  --bg-page:          #0f1117;
+  --bg-card:          #1a1f2e;
+  --bg-card2:         #141824;
+  --bg-sidebar:       #141824;
+  --bg-header:        #1a1f2e;
+  --bg-input:         #1e2437;
+  --border:           #2d3550;
+  --text-primary:     #f1f5f9;
+  --text-secondary:   #94a3b8;
+  --text-muted:       #475569;
+  --shadow-sm:        0 1px 3px rgba(0,0,0,.3);
+  --shadow-md:        0 4px 16px rgba(0,0,0,.4);
+  --shadow-lg:        0 8px 32px rgba(0,0,0,.5);
+  --radius-sm:        8px;
+  --radius-md:        12px;
+  --radius-lg:        18px;
+  --radius-xl:        24px;
+  --header-height:    64px;
+  --sidebar-width:    260px;
+}
+
+/* ── Base reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Global utility classes (btn, card, badge, input-field, spinner) ── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  padding: .65rem 1.25rem; border: none; border-radius: var(--radius-md);
+  font-size: .9rem; font-weight: 600; cursor: pointer;
+  transition: all .2s; font-family: inherit; white-space: nowrap;
+}
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn-primary {
+  background: var(--accent); color: #fff;
+  box-shadow: 0 3px 12px rgba(var(--accent-rgb),.35);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-dark);
+  box-shadow: 0 5px 18px rgba(var(--accent-rgb),.45);
+  transform: translateY(-1px);
+}
+.btn-secondary {
+  background: var(--bg-card2); color: var(--text-secondary);
+  border: 1.5px solid var(--border);
+}
+.btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn-danger { background: var(--status-danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #b91c1c; transform: translateY(-1px); }
+.btn-ghost {
+  background: transparent; color: var(--text-secondary);
+  border: 1.5px solid var(--border);
+}
+.btn-ghost:hover:not(:disabled) { background: var(--bg-card2); color: var(--text-primary); }
+.input-field {
+  width: 100%; padding: .75rem 1rem;
+  background: var(--bg-input); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); font-size: .95rem;
+  color: var(--text-primary); font-family: inherit; outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+.input-field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.12);
+  background: var(--bg-card);
+}
+.input-field::placeholder { color: var(--text-muted); }
+.input-field.error { border-color: var(--status-danger); }
+.badge {
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .2rem .65rem; border-radius: 999px;
+  font-size: .75rem; font-weight: 600;
+}
+.badge-safe   { background: var(--status-safe-bg);   color: var(--status-safe);   }
+.badge-warn   { background: var(--status-warn-bg);   color: var(--status-warn);   }
+.badge-danger { background: var(--status-danger-bg); color: var(--status-danger); }
+.badge-accent { background: var(--accent-light);     color: var(--accent);        }
+.field-error {
+  font-size: .78rem; color: var(--status-danger);
+  margin-top: .3rem; display: flex; align-items: center; gap: .3rem;
+}
+.spinner {
+  width: 36px; height: 36px;
+  border: 3px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.theme-toggle {
+  background: var(--bg-card2); border: 1.5px solid var(--border);
+  color: var(--text-secondary); border-radius: 999px;
+  padding: .4rem .75rem; font-size: .85rem; cursor: pointer;
+  display: flex; align-items: center; gap: .4rem; transition: all .2s; font-family: inherit;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+
+
+/* ══ Dashboard layout ═══════════════════════════════════════════ */
 .dashboard {
   display: flex;
   flex-direction: column;
