@@ -4,9 +4,10 @@ import { productService } from '../services/authService';
 import { checkExpiringProducts } from '../services/notifications';
 import './Dashboard.css';
 
-const Scanner     = lazy(() => import('./Scanner'));
-const AddManual   = lazy(() => import('./AddManual'));
-const ProductList = lazy(() => import('./ProductList'));
+const Scanner       = lazy(() => import('./Scanner'));
+const AddManual     = lazy(() => import('./AddManual'));
+const ProductList   = lazy(() => import('./ProductList'));
+const RecentlyAdded = lazy(() => import('./Recentlyadded'));
 
 // Static display card — no click, no hover effect
 const StatCard = memo(({ icon, label, value, colorClass }) => (
@@ -96,6 +97,7 @@ const Dashboard = ({ user, onLogout }) => {
     { id: 'scanner',  icon: 'fa-camera',    label: 'Scanner'                        },
     { id: 'manual',   icon: 'fa-pencil-alt', label: 'Add Manual'                    },
     { id: 'products', icon: 'fa-box-open',   label: `Products (${products.length})` },
+    { id: 'recent',   icon: 'fa-history',    label: 'Recently Added'                },
   ];
 
   return (
@@ -167,6 +169,7 @@ const Dashboard = ({ user, onLogout }) => {
                 loading={loading}
               />
             )}
+            {activeTab === 'recent' && <RecentlyAdded />}
           </Suspense>
         </div>
       </main>
