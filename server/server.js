@@ -13,30 +13,44 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'fresh-track-secret-key';
 
-// ── Nodemailer transporter ──────────────────────────────────────────────────
-// ── Nodemailer — try port 465 (SSL) since Render blocks 587 ──────────────────
-// Port 465 uses implicit SSL which Render allows.
-// Port 587 (STARTTLS) is blocked by Render's free tier firewall.
+// ── Nodemailer via Brevo SMTP (port 2525 — works on Render free tier) ────────
+// Render blocks ports 25, 465, 587 for outbound SMTP.
+// Brevo (formerly Sendinblue) supports port 2525 which Render allows.
+// Free: 300 emails/day — plenty for this app.
+//
+// Setup (one time):
+//   1. Go to https://app.brevo.com → Sign up free
+//   2. Go to SMTP & API → SMTP tab
+//   3. Copy: Login (your email) and Master password
+//   4. In Render environment variables set:
+//      EMAIL_USER = your Brevo login email
+//      EMAIL_PASS = your Brevo SMTP password (NOT your Brevo account password)
+//      EMAIL_FROM = any name/email you want to send from
+
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,           // SSL on port 465
-  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  connectionTimeout: 10000,
-  greetingTimeout:   10000,
-  socketTimeout:     15000,
+  host: 'smtp-relay.brevo.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,  // your Brevo login email
+    pass: process.env.EMAIL_PASS,  // your Brevo SMTP password
+  },
+  connectionTimeout: 15000,
+  greetingTimeout:   15000,
+  socketTimeout:     20000,
 });
+
 transporter.verify((err) => {
   if (err) console.error('❌ Email transporter error:', err.message);
   else     console.log('✅ Email transporter ready');
 });
 
-// Helper: send mail with a hard 15-second timeout
+// Helper: send mail with 20s timeout
 function sendMailWithTimeout(options) {
   return Promise.race([
     transporter.sendMail(options),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Email timeout after 15s')), 15000)
+      setTimeout(() => reject(new Error('Email send timeout after 20s')), 20000)
     ),
   ]);
 }
@@ -137,7 +151,7 @@ async function sendExpiryEmail(to, productName, expiryDateStr, type) {
 
   const subject = `${em} FreshTrack: ${productName} expires ${urg}`;
 
-  await transporter.sendMail({
+  await sendMailWithTimeout({
     from: `"FreshTrack" <${process.env.EMAIL_USER}>`,
     to,
     subject,
@@ -297,7 +311,7 @@ app.post('/api/register', async (req, res) => {
       { expiresIn: '30d' }
     );
 
-    transporter.sendMail({
+    sendMailWithTimeout({
       from: `"FreshTrack" <${process.env.EMAIL_USER}>`,
       to: user.email,
       subject: '🎉 Welcome to FreshTrack!',
@@ -467,6 +481,16 @@ app.post('/api/auth/reset-password', async (req, res) => {
 app.get('/api/products', auth, async (req, res) => {
   try {
     const products = await Product.find({ userId: req.user.userId }).sort({ expiryDate: 1 });
+    res.json(products);
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Recently added — last 20 products sorted by scanDate descending
+app.get('/api/products/recent', auth, async (req, res) => {
+  try {
+    const products = await Product.find({ userId: req.user.userId })
+      .sort({ scanDate: -1 })
+      .limit(20);
     res.json(products);
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
