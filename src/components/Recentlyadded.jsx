@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { productService } from '../services/authService';
 import { format, differenceInDays } from 'date-fns';
+import '../styles/App.css';
 
 const getCategoryEmoji = (cat = '') => {
   const map = {
