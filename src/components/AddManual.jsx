@@ -1,29 +1,28 @@
-import React, { useState, memo } from 'react';
+import React, { useState, memo, useCallback } from 'react';
 import './AddManual.css';
 
 const CATEGORIES = ['Dairy','Fruits','Vegetables','Meat & Seafood','Bakery','Snacks','Beverages','Canned Goods','Frozen Foods','Condiments','Personal Care','Other'];
 
-// Validators
 const validate = (data) => {
   const errors = {};
-  if (!data.name.trim())          errors.name = 'Product name is required';
+  if (!data.name.trim())               errors.name = 'Product name is required';
   else if (data.name.trim().length < 2) errors.name = 'Name must be at least 2 characters';
-  if (!data.expiryDate)           errors.expiryDate = 'Expiry date is required';
-  else {
+  if (!data.expiryDate) {
+    errors.expiryDate = 'Expiry date is required';
+  } else {
     const exp = new Date(data.expiryDate);
     const now = new Date(); now.setHours(0,0,0,0);
-    if (isNaN(exp.getTime()))     errors.expiryDate = 'Invalid date';
-    else if (exp < now)           errors.expiryDate = 'Expiry date cannot be in the past';
+    if (isNaN(exp.getTime())) errors.expiryDate = 'Invalid date';
+    else if (exp < now)       errors.expiryDate = 'Expiry date cannot be in the past';
   }
   if (data.barcode && !/^[0-9A-Za-z-]{4,20}$/.test(data.barcode))
     errors.barcode = 'Barcode must be 4–20 alphanumeric characters';
   return errors;
 };
 
-// Google Calendar URL helper
 const buildCalendarUrl = (productName, expiryISO) => {
-  const exp  = new Date(expiryISO);
-  const rem  = new Date(exp); rem.setDate(rem.getDate() - 1);
+  const exp = new Date(expiryISO);
+  const rem = new Date(exp); rem.setDate(rem.getDate() - 1);
   const startStr = rem.toISOString().slice(0,10).replace(/-/g,'');
   const endStr   = exp.toISOString().slice(0,10).replace(/-/g,'');
   const params = new URLSearchParams({
@@ -36,6 +35,22 @@ const buildCalendarUrl = (productName, expiryISO) => {
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 };
 
+// ── Field defined OUTSIDE component so it never gets recreated on re-render ──
+// This is the fix for keyboard closing on mobile: when Field is inside the
+// component, React creates a new function reference every render, causing
+// the input to unmount/remount and lose focus.
+const Field = memo(({ id, label, icon, error, touched, children }) => (
+  <div className="am-field">
+    <label htmlFor={id} className="am-label">
+      <i className={`fas ${icon}`} /> {label}
+    </label>
+    {children}
+    {error && touched && (
+      <p className="field-error"><i className="fas fa-exclamation-circle" /> {error}</p>
+    )}
+  </div>
+));
+
 const AddManual = memo(({ onProductAdded }) => {
   const [formData, setFormData] = useState({ name:'', category:'Other', expiryDate:'', barcode:'', brand:'', quantity:'' });
   const [errors,   setErrors]   = useState({});
@@ -45,30 +60,31 @@ const AddManual = memo(({ onProductAdded }) => {
 
   const today = new Date().toISOString().split('T')[0];
 
-  const handleChange = (e) => {
+  const handleChange = useCallback((e) => {
     const { name, value } = e.target;
     setFormData(d => ({ ...d, [name]: value }));
     setTouched(t => ({ ...t, [name]: true }));
-    // Live validate touched field
-    const newErrs = validate({ ...formData, [name]: value });
-    setErrors(prev => ({ ...prev, [name]: newErrs[name] || '' }));
-  };
+    setErrors(prev => {
+      const newErrs = validate({ ...prev, [name]: value });
+      return { ...prev, [name]: newErrs[name] || '' };
+    });
+  }, []);
 
-  const handleBlur = (e) => {
+  const handleBlur = useCallback((e) => {
     const { name } = e.target;
     setTouched(t => ({ ...t, [name]: true }));
-    const newErrs = validate(formData);
-    setErrors(prev => ({ ...prev, [name]: newErrs[name] || '' }));
-  };
+    setErrors(prev => {
+      const newErrs = validate({ name:'', category:'Other', expiryDate:'', barcode:'', brand:'', quantity:'', ...prev });
+      return { ...prev, [name]: newErrs[name] || '' };
+    });
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // Mark all fields touched
     setTouched({ name:true, expiryDate:true, barcode:true });
     const newErrors = validate(formData);
     setErrors(newErrors);
     if (Object.values(newErrors).some(Boolean)) return;
-
     setLoading(true);
     const product = {
       barcode:    formData.barcode.trim() || `manual_${Date.now()}`,
@@ -87,19 +103,6 @@ const AddManual = memo(({ onProductAdded }) => {
     setTouched({});
     setErrors({});
   };
-
-  // Field helper
-  const Field = ({ id, label, icon, error, children }) => (
-    <div className="am-field">
-      <label htmlFor={id} className="am-label">
-        <i className={`fas ${icon}`}/> {label}
-      </label>
-      {children}
-      {error && touched[id] && (
-        <p className="field-error"><i className="fas fa-exclamation-circle"/> {error}</p>
-      )}
-    </div>
-  );
 
   if (saved) {
     return (
@@ -128,43 +131,50 @@ const AddManual = memo(({ onProductAdded }) => {
         <form onSubmit={handleSubmit} noValidate>
           <div className="am-grid">
 
-            <Field id="name" label="Product Name *" icon="fa-tag" error={errors.name}>
-              <input id="name" name="name" type="text" className={`input-field ${touched.name&&errors.name?'error':''}`}
+            <Field id="name" label="Product Name *" icon="fa-tag"
+              error={errors.name} touched={touched.name}>
+              <input id="name" name="name" type="text"
+                className={`input-field ${touched.name && errors.name ? 'error' : ''}`}
                 value={formData.name} onChange={handleChange} onBlur={handleBlur}
-                placeholder="e.g. Amul Milk 500ml" autoComplete="off"/>
+                placeholder="e.g. Amul Milk 500ml" autoComplete="off" />
             </Field>
 
-            <Field id="brand" label="Brand" icon="fa-building" error={errors.brand}>
+            <Field id="brand" label="Brand" icon="fa-building"
+              error={errors.brand} touched={touched.brand}>
               <input id="brand" name="brand" type="text" className="input-field"
-                value={formData.brand} onChange={handleChange}
-                placeholder="e.g. Amul, Nestle" autoComplete="off"/>
+                value={formData.brand} onChange={handleChange} onBlur={handleBlur}
+                placeholder="e.g. Amul, Nestle" autoComplete="off" />
             </Field>
 
-            <Field id="category" label="Category" icon="fa-folder" error={errors.category}>
+            <Field id="category" label="Category" icon="fa-folder"
+              error={errors.category} touched={touched.category}>
               <select id="category" name="category" className="input-field"
                 value={formData.category} onChange={handleChange}>
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </Field>
 
-            <Field id="quantity" label="Quantity / Size" icon="fa-weight" error={errors.quantity}>
+            <Field id="quantity" label="Quantity / Size" icon="fa-weight"
+              error={errors.quantity} touched={touched.quantity}>
               <input id="quantity" name="quantity" type="text" className="input-field"
-                value={formData.quantity} onChange={handleChange}
-                placeholder="e.g. 500ml, 1kg"/>
+                value={formData.quantity} onChange={handleChange} onBlur={handleBlur}
+                placeholder="e.g. 500ml, 1kg" />
             </Field>
 
-            <Field id="expiryDate" label="Expiry Date *" icon="fa-calendar-alt" error={errors.expiryDate}>
+            <Field id="expiryDate" label="Expiry Date *" icon="fa-calendar-alt"
+              error={errors.expiryDate} touched={touched.expiryDate}>
               <input id="expiryDate" name="expiryDate" type="date"
-                className={`input-field ${touched.expiryDate&&errors.expiryDate?'error':''}`}
+                className={`input-field ${touched.expiryDate && errors.expiryDate ? 'error' : ''}`}
                 value={formData.expiryDate} onChange={handleChange} onBlur={handleBlur}
-                min={today}/>
+                min={today} />
             </Field>
 
-            <Field id="barcode" label="Barcode (Optional)" icon="fa-barcode" error={errors.barcode}>
+            <Field id="barcode" label="Barcode (Optional)" icon="fa-barcode"
+              error={errors.barcode} touched={touched.barcode}>
               <input id="barcode" name="barcode" type="text"
-                className={`input-field ${touched.barcode&&errors.barcode?'error':''}`}
+                className={`input-field ${touched.barcode && errors.barcode ? 'error' : ''}`}
                 value={formData.barcode} onChange={handleChange} onBlur={handleBlur}
-                placeholder="Scan or type barcode"/>
+                placeholder="Scan or type barcode" />
             </Field>
 
           </div>
