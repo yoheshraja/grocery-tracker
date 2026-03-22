@@ -14,14 +14,17 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'fresh-track-secret-key';
 
 // ── Nodemailer transporter ──────────────────────────────────────────────────
+// ── Nodemailer — try port 465 (SSL) since Render blocks 587 ──────────────────
+// Port 465 uses implicit SSL which Render allows.
+// Port 587 (STARTTLS) is blocked by Render's free tier firewall.
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,          // STARTTLS on port 587 — more reliable than service:'gmail'
+  port: 465,
+  secure: true,           // SSL on port 465
   auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  connectionTimeout: 10000,  // 10s to connect
-  greetingTimeout:   10000,  // 10s for greeting
-  socketTimeout:     15000,  // 15s per socket operation
+  connectionTimeout: 10000,
+  greetingTimeout:   10000,
+  socketTimeout:     15000,
 });
 transporter.verify((err) => {
   if (err) console.error('❌ Email transporter error:', err.message);
