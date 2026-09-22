@@ -8,6 +8,15 @@ Backend — Node.js, Express.js, MongoDB Atlas
 Notifications — Nodemailer, Twilio
 Auth — JWT, bcrypt
 
+How It Works:
+Register / Login — User creates an account and logs in securely.
+Scan Barcode — User scans a product barcode to automatically get product details.
+Read Expiry Date — User captures the expiry date, which is automatically detected.
+Save Product — Product details and expiry date are saved.
+Dashboard— Products are displayed with clear expiry status.
+Automatic Alerts — Users receive email notifications before products expire.
+Take Action— Users can use or dispose of products before expiry, helping reduce food waste.
+
 Features:
 Scan product barcode using camera — auto-fills product details
 Photograph expiry label — OCR reads the date automatically
