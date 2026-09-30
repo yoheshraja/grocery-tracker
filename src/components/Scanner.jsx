@@ -1,19 +1,4 @@
-/**
- * Scanner.jsx — FreshTrack
- * ─────────────────────────────────────────────────────────────────────────────
- * CROP FIX:
- *   The core issue was object-fit:contain adding letterbox bars — the SVG
- *   overlay covered the full container including bars, but crop fractions were
- *   calculated against the image itself. Fixed by:
- *     1. Storing native video aspect ratio
- *     2. Using object-fit:fill on the crop <img> so container = image (no bars)
- *     3. Container height = auto, driven by the image's natural ratio
- *     4. All handle positions map 1:1 to image fractions → pixel-perfect crop
- *
- * GOOGLE CALENDAR:
- *   After save, offer "Add to Google Calendar" button that opens Google Calendar
- *   with pre-filled event (1-day-before alarm) via a URL link.
- */
+
 
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
